@@ -28,11 +28,13 @@ from mirage.commands.builtin.utils.wrap import (call_read_bytes, call_readdir,
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.discord.channels import list_channels
+from mirage.core.discord.entry import channel_dirname
+from mirage.core.discord.formatters import format_grep_results
 from mirage.core.discord.glob import resolve_glob
 from mirage.core.discord.read import read as discord_read
 from mirage.core.discord.readdir import readdir as _readdir
 from mirage.core.discord.scope import coalesce_scopes, detect_scope
-from mirage.core.discord.search import format_grep_results, search_guild
+from mirage.core.discord.search import search_guild
 from mirage.core.discord.stat import stat as _stat
 from mirage.io.stream import exit_on_empty, quiet_match, yield_bytes
 from mirage.io.types import ByteSource, IOResult
@@ -95,9 +97,10 @@ async def grep(
     after_ctx = int(A) if A is not None else (int(C) if C is not None else 0)
     before_ctx = int(B) if B is not None else (int(C) if C is not None else 0)
 
+    pushdown_warnings: list[str] = []
     if paths:
         scope = await detect_scope(paths[0], index)
-        if scope.level == "file":
+        if scope.level in ("messages", "file_blob", "date"):
             coalesced = await coalesce_scopes(paths, index)
             if coalesced is not None:
                 scope = coalesced
@@ -121,16 +124,23 @@ async def grep(
                 file_prefix = paths[0].prefix or ""
                 resource_first = scope.resource_path.split("/", 1)[0]
                 channels = await list_channels(accessor.config, scope.guild_id)
-                channel_map = {
-                    c["id"]: c.get("name", c["id"])
-                    for c in channels
-                }
+                channel_map = {c["id"]: channel_dirname(c) for c in channels}
                 lines = format_grep_results(msgs, file_prefix, resource_first,
                                             channel_map)
                 if not lines:
                     return b"", IOResult(exit_code=1)
                 return "\n".join(lines).encode(), IOResult()
             except Exception as exc:
+                msg = str(exc)
+                pushdown_warnings.append(
+                    f"discord: native search push-down failed ({msg}); "
+                    f"falling back to per-file scan")
+                if ("403" in msg or "Forbidden" in msg
+                        or "missing access" in msg.lower()):
+                    pushdown_warnings.append(
+                        "discord: hint - ensure the bot has the "
+                        "READ_MESSAGE_HISTORY permission for this guild "
+                        "and the MESSAGE CONTENT privileged intent enabled")
                 logger.warning(
                     "discord search push-down failed (%s); "
                     "falling back to per-file scan", exc)
@@ -153,6 +163,12 @@ async def grep(
                      index=index,
                      prefix=file_prefix)
 
+        def _stderr_from(*extra: list[str]) -> bytes | None:
+            joined: list[str] = list(pushdown_warnings)
+            for w in extra:
+                joined.extend(w)
+            return ("\n".join(joined) + "\n").encode() if joined else None
+
         if args_l:
             warnings: list[str] = []
             results = await grep_files_only(
@@ -172,7 +188,7 @@ async def grep(
                 whole_word=w,
                 warnings=warnings,
             )
-            stderr = ("\n".join(warnings).encode() if warnings else None)
+            stderr = _stderr_from(warnings)
             if not results:
                 return b"", IOResult(exit_code=1, stderr=stderr)
             return ("\n".join(results).encode(), IOResult(stderr=stderr))
@@ -193,9 +209,10 @@ async def grep(
                     all_results.extend(hits)
                 else:
                     all_results.extend(f"{p.original}:{r}" for r in hits)
+            stderr = _stderr_from()
             if not all_results:
-                return b"", IOResult(exit_code=1)
-            return "\n".join(all_results).encode(), IOResult()
+                return b"", IOResult(exit_code=1, stderr=stderr)
+            return "\n".join(all_results).encode(), IOResult(stderr=stderr)
 
         data = await rb(paths[0].original)
         source = yield_bytes(data)
@@ -210,10 +227,11 @@ async def grep(
             after_context=after_ctx,
             before_context=before_ctx,
         )
+        stderr = _stderr_from()
         if q:
-            io = IOResult(exit_code=1)
+            io = IOResult(exit_code=1, stderr=stderr)
             return quiet_match(stream, io), io
-        io = IOResult()
+        io = IOResult(stderr=stderr)
         return exit_on_empty(stream, io), io
 
     source = _resolve_source(stdin, "grep: usage: grep [flags] pattern [path]")
