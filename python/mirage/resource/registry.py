@@ -104,6 +104,9 @@ REGISTRY: dict[str, ResourceEntry] = {
     "paperclip":
     ResourceEntry("mirage.resource.paperclip:PaperclipResource",
                   "mirage.resource.paperclip:PaperclipConfig"),
+    "dify":
+    ResourceEntry("mirage.resource.dify:DifyResource",
+                  "mirage.resource.dify:DifyConfig"),
 }
 
 
