@@ -4,7 +4,7 @@ from mirage.cache.index import IndexCacheStore
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.chromadb.glob import resolve_glob
-from mirage.core.chromadb.path import virtual_key_for
+from mirage.core.chromadb.path import is_dir as _is_dir
 from mirage.core.chromadb.readdir import readdir
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
@@ -57,15 +57,6 @@ async def _tree_lines(
                                      show_hidden, ignore_pattern, dirs_only,
                                      match_pattern, depth + 1))
     return lines
-
-
-async def _is_dir(path: str, prefix: str, index: IndexCacheStore) -> bool:
-    spec = PathSpec(original=path, directory=path, prefix=prefix)
-    result = await index.get(virtual_key_for(spec))
-    if result.entry is not None:
-        return result.entry.resource_type == "folder"
-    listing = await index.list_dir(virtual_key_for(spec))
-    return listing.entries is not None
 
 
 @command("tree", resource="chromadb", spec=SPECS["tree"])

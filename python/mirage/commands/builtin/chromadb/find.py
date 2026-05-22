@@ -5,7 +5,7 @@ from mirage.commands.builtin.generic.find import parse_find_args
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.chromadb.glob import resolve_glob
-from mirage.core.chromadb.path import virtual_key_for
+from mirage.core.chromadb.path import is_dir as _is_dir
 from mirage.core.chromadb.readdir import readdir
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
@@ -16,7 +16,7 @@ async def _walk(accessor,
                 index: IndexCacheStore,
                 maxdepth: int | None,
                 depth: int = 0) -> list[str]:
-    if maxdepth is not None and depth > maxdepth:
+    if maxdepth is not None and depth >= maxdepth:
         return []
     try:
         children = await readdir(accessor, path, index)
@@ -33,15 +33,6 @@ async def _walk(accessor,
             results.extend(await _walk(accessor, child_spec, index, maxdepth,
                                        depth + 1))
     return results
-
-
-async def _is_dir(path: str, prefix: str, index: IndexCacheStore) -> bool:
-    spec = PathSpec(original=path, directory=path, prefix=prefix)
-    result = await index.get(virtual_key_for(spec))
-    if result.entry is not None:
-        return result.entry.resource_type == "folder"
-    listing = await index.list_dir(virtual_key_for(spec))
-    return listing.entries is not None
 
 
 @command("find", resource="chromadb", spec=SPECS["find"])

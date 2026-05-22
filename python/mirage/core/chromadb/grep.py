@@ -7,7 +7,7 @@ from mirage.commands.builtin.grep_helper import compile_pattern, grep_lines
 from mirage.commands.builtin.utils.lines import split_lines
 from mirage.core.chromadb.glob import resolve_glob
 from mirage.core.chromadb.path import resolve_path
-from mirage.core.chromadb.read import read_bytes
+from mirage.core.chromadb.read import _where, read_bytes
 from mirage.types import PathSpec
 
 
@@ -49,6 +49,7 @@ async def grep_paths(
         raw_hits = await coarse_matching_raw_slugs(
             accessor,
             pattern,
+            raw_hits,
             ignore_case=ignore_case,
             fixed_string=fixed_string,
             whole_word=whole_word,
@@ -106,19 +107,24 @@ async def candidate_pages(
 async def coarse_matching_raw_slugs(
     accessor,
     pattern: str,
+    candidate_raw_slugs: set[str],
     *,
     ignore_case: bool = False,
     fixed_string: bool = False,
     whole_word: bool = False,
 ) -> set[str]:
+    if not candidate_raw_slugs:
+        return set()
     raw_slugs: set[str] = set()
     offset = 0
+    where = _where(accessor.config.slug_field, list(candidate_raw_slugs))
     where_document = _where_document(pattern, ignore_case, fixed_string,
                                      whole_word)
     while True:
         result = await asyncio.to_thread(
             accessor.collection.get,
             include=["metadatas"],
+            where=where,
             where_document=where_document,
             limit=accessor.config.metadata_batch_size,
             offset=offset,

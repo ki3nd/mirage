@@ -4,7 +4,7 @@ from mirage.commands.builtin.utils.stream import _read_stdin_async
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.chromadb.glob import resolve_glob
-from mirage.core.chromadb.read import read_stream
+from mirage.core.chromadb.read import read_bytes
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
 
@@ -14,12 +14,14 @@ async def _tail_bytes(data: bytes, lines: int,
     if bytes_mode is not None:
         yield data[-bytes_mode:] if bytes_mode else b""
         return
-    parts = data.splitlines()
-    yield b"\n".join(parts[-lines:])
-
-
-async def _read_stream_bytes(source: AsyncIterator[bytes]) -> bytes:
-    return b"".join([chunk async for chunk in source])
+    trailing_newline = data.endswith(b"\n")
+    parts = data.split(b"\n")
+    if trailing_newline and parts and parts[-1] == b"":
+        parts = parts[:-1]
+    result = b"\n".join(parts[-lines:])
+    if trailing_newline:
+        result += b"\n"
+    yield result
 
 
 @command("tail", resource="chromadb", spec=SPECS["tail"])
@@ -37,7 +39,7 @@ async def tail(
     bytes_mode = int(c) if c is not None else None
     if paths:
         paths = await resolve_glob(accessor, paths, index)
-        data = await _read_stream_bytes(read_stream(accessor, paths[0], index))
+        data = await read_bytes(accessor, paths[0], index)
         return _tail_bytes(data, lines, bytes_mode), IOResult()
     raw = await _read_stdin_async(stdin)
     if raw is None:

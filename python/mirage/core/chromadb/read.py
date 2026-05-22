@@ -28,8 +28,8 @@ async def read_stream(accessor, path: PathSpec,
     if resolved.is_dir:
         raise IsADirectoryError(path.original)
     chunks = await fetch_chunks(accessor, resolved.entry.extra["raw_slugs"])
-    for index, chunk in enumerate(chunks):
-        if index:
+    for i, chunk in enumerate(chunks):
+        if i:
             yield b"\n"
         yield document_to_text(chunk.document).encode()
 
@@ -76,6 +76,8 @@ def document_to_text(value: object) -> str:
 
 
 def _where(slug_field: str, raw_slugs: list[str]) -> dict:
+    if not raw_slugs:
+        raise ValueError("raw_slugs must not be empty")
     if len(raw_slugs) == 1:
         return {slug_field: raw_slugs[0]}
     return {slug_field: {"$in": raw_slugs}}

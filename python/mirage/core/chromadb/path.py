@@ -33,6 +33,15 @@ async def resolve_path(accessor, path: PathSpec,
     raise FileNotFoundError(path.original)
 
 
+async def is_dir(path: str, prefix: str, index: IndexCacheStore) -> bool:
+    spec = PathSpec(original=path, directory=path, prefix=prefix)
+    result = await index.get(virtual_key_for(spec))
+    if result.entry is not None:
+        return result.entry.resource_type == "folder"
+    listing = await index.list_dir(virtual_key_for(spec))
+    return listing.entries is not None
+
+
 def virtual_key_for(path: PathSpec) -> str:
     raw = path.directory if path.pattern else path.original
     prefix = path.prefix or ""
