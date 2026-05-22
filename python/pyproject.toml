@@ -86,6 +86,11 @@ fuse     = ["mfusepy>=1.0.0"]
 # --- mongodb ---
 mongodb  = ["motor>=3.7.1"]
 
+# --- chromadb ---
+chromadb = [
+    "chromadb>=0.5.0",
+]
+
 # --- postgres ---
 postgres = ["asyncpg>=0.30.0"]
 
@@ -143,6 +148,7 @@ all = [
     "mirage-ai[postgres]",
     "mirage-ai[redis]",
     "mirage-ai[email]",
+    "mirage-ai[chromadb]",
     "mirage-ai[parquet]",
     "mirage-ai[hdf5]",
     "mirage-ai[pdf]",

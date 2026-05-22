@@ -111,6 +111,7 @@ class ResourceName(str, Enum):
     GCS = "gcs"
     EMAIL = "email"
     PAPERCLIP = "paperclip"
+    CHROMADB = "chromadb"
 
 
 @dataclass(frozen=True)
