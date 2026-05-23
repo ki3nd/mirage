@@ -106,7 +106,7 @@ async def test_ls_cat_grep_find_head_tail_wc_commands(monkeypatch):
     assert await materialize(ls_stdout) == b"README.md\nguides"
 
     cat_stdout, cat_io = await cat(acc, [guide], index=index)
-    assert await materialize(cat_stdout) == b"alpha\nbeta\n\ngamma"
+    assert await materialize(cat_stdout) == b"alpha\nbeta\ngamma"
     assert guide.original in cat_io.reads
     assert cat_io.cache == [guide.original]
 
@@ -125,7 +125,7 @@ async def test_ls_cat_grep_find_head_tail_wc_commands(monkeypatch):
 
     wc_stdout, wc_io = await wc(acc, [guide], index=index)
     assert await materialize(wc_stdout
-                             ) == b"3\t3\t17\t/knowledge/guides/quickstart.md"
+                             ) == b"2\t3\t16\t/knowledge/guides/quickstart.md"
     assert wc_io.cache == [guide.original]
 
 
@@ -161,7 +161,7 @@ async def test_head_tail_grep_use_read_stream(monkeypatch):
     assert await materialize(head_stdout) == b"alpha\nbeta\n"
 
     tail_stdout, _ = await tail(acc, [guide], index=index, n=2)
-    assert await materialize(tail_stdout) == b"\ngamma"
+    assert await materialize(tail_stdout) == b"beta\ngamma"
 
     grep_stdout, grep_io = await grep(acc, [guide], "gamma", index=index)
     assert await materialize(grep_stdout) == b"gamma\n"
@@ -262,10 +262,12 @@ async def test_wc_supports_chars_and_max_line_length(monkeypatch):
     )
 
     chars_stdout, _ = await wc(acc, [guide], m=True, index=index)
-    assert await materialize(chars_stdout) == b"17\t/knowledge/guides/quickstart.md"
+    assert await materialize(chars_stdout
+                             ) == b"17\t/knowledge/guides/quickstart.md"
 
     max_line_stdout, _ = await wc(acc, [guide], L=True, index=index)
-    assert await materialize(max_line_stdout) == b"7\t/knowledge/guides/quickstart.md"
+    assert await materialize(max_line_stdout
+                             ) == b"7\t/knowledge/guides/quickstart.md"
 
 
 @pytest.mark.asyncio
@@ -299,21 +301,32 @@ async def test_grep_supports_standard_flags(monkeypatch):
     assert plain_io.exit_code == 0
 
     numbered_stdout, _ = await grep(acc, [guide], "alpha", n=True, index=index)
-    assert await materialize(numbered_stdout) == b"1:alpha beta\n3:gamma alpha\n"
+    assert await materialize(numbered_stdout
+                             ) == b"1:alpha beta\n2:gamma alpha\n"
 
     count_stdout, _ = await grep(acc, [guide], "alpha", c=True, index=index)
     assert await materialize(count_stdout) == b"2\n"
 
-    files_stdout, _ = await grep(acc, [guide], "alpha", args_l=True, index=index)
-    assert await materialize(files_stdout) == b"/knowledge/guides/quickstart.md"
+    files_stdout, _ = await grep(acc, [guide],
+                                 "alpha",
+                                 args_l=True,
+                                 index=index)
+    assert await materialize(files_stdout
+                             ) == b"/knowledge/guides/quickstart.md"
 
-    fixed_stdout, _ = await grep(acc, [guide], "alpha beta", F=True, index=index)
+    fixed_stdout, _ = await grep(acc, [guide],
+                                 "alpha beta",
+                                 F=True,
+                                 index=index)
     assert await materialize(fixed_stdout) == b"alpha beta\n"
 
     word_stdout, _ = await grep(acc, [guide], "alph", w=True, index=index)
     assert await materialize(word_stdout) == b""
 
-    quiet_stdout, quiet_io = await grep(acc, [guide], "alpha", q=True, index=index)
+    quiet_stdout, quiet_io = await grep(acc, [guide],
+                                        "alpha",
+                                        q=True,
+                                        index=index)
     assert quiet_stdout is not None
     assert await materialize(quiet_stdout) == b""
     assert quiet_io.exit_code == 0

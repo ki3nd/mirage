@@ -37,6 +37,32 @@ async def dify_get(config: DifyConfig,
     raise RuntimeError(f"Dify request failed: {endpoint}")
 
 
+async def dify_post(config: DifyConfig, endpoint: str,
+                    body: dict[str, Any]) -> dict[str, Any]:
+    url = f"{config.base_url}{endpoint}"
+    headers = {"Authorization": f"Bearer {config.api_key}"}
+    last_error: httpx.HTTPStatusError | None = None
+    for attempt in range(4):
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(url, headers=headers, json=body)
+        if response.status_code == 429 and attempt < 3:
+            logger.warning("Dify rate limited request to %s", endpoint)
+            await asyncio.sleep(2**attempt)
+            continue
+        if 500 <= response.status_code < 600 and attempt < 1:
+            await asyncio.sleep(1)
+            continue
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            break
+        return response.json()
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"Dify request failed: {endpoint}")
+
+
 async def list_all_documents(config: DifyConfig) -> list[dict[str, Any]]:
     documents: list[dict[str, Any]] = []
     page = 1

@@ -30,8 +30,9 @@ def build_dir_entries(
 ) -> dict[str, list[tuple[str, IndexEntry]]]:
     files: dict[str, dict[str, Any]] = {}
     raw_slugs: dict[str, str] = {}
+    has_slugs: dict[str, bool] = {}
     for document in documents:
-        slug = extract_slug(document)
+        slug, has_slug = extract_slug(document)
         path = normalize_slug(slug)
         if path in files:
             raise ValueError(
@@ -40,6 +41,7 @@ def build_dir_entries(
                 "the same path.")
         files[path] = document
         raw_slugs[path] = str(slug)
+        has_slugs[path] = has_slug
 
     raise_on_collisions(files)
     directories = collect_directories(set(files))
@@ -68,6 +70,7 @@ def build_dir_entries(
             extra={
                 "slug": path.strip("/"),
                 "raw_slug": raw_slugs[path],
+                "has_slug": has_slugs[path],
                 "tokens": document.get("tokens"),
                 "indexing_status": document.get("indexing_status"),
                 "data_source_type": document.get("data_source_type"),
@@ -78,17 +81,17 @@ def build_dir_entries(
     return dir_entries
 
 
-def extract_slug(document: dict[str, Any]) -> str:
+def extract_slug(document: dict[str, Any]) -> tuple[str, bool]:
     metadata = document.get("doc_metadata")
     if isinstance(metadata, list):
         for item in metadata:
             if isinstance(item, dict) and item.get("name") == "slug":
                 value = item.get("value")
                 if value is not None:
-                    return str(value)
+                    return str(value), True
     if isinstance(metadata, dict) and metadata.get("slug") is not None:
-        return str(metadata["slug"])
-    return str(document["name"])
+        return str(metadata["slug"]), True
+    return str(document["name"]), False
 
 
 def normalize_slug(value: str) -> str:

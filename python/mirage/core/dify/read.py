@@ -26,12 +26,12 @@ async def read_stream(accessor, path: PathSpec,
             if first:
                 first = False
             else:
-                yield b"\n\n"
+                yield b"\n"
             yield segment_text(segment).encode()
 
 
 def segments_to_bytes(segments: list[dict]) -> bytes:
-    return "\n\n".join(segment_text(segment) for segment in segments).encode()
+    return "\n".join(segment_text(segment) for segment in segments).encode()
 
 
 def segment_text(segment: dict) -> str:

@@ -77,8 +77,12 @@ async def test_tree_builds_prefixed_entries_and_uses_api_size(monkeypatch, ):
     assert quickstart.entry.id == "doc-1"
     assert quickstart.entry.size == 333
     assert quickstart.entry.extra["slug"] == "guides/quickstart"
+    assert quickstart.entry.extra["raw_slug"] == "guides/quickstart"
+    assert quickstart.entry.extra["has_slug"] is True
     assert readme.entry.id == "doc-6"
     assert readme.entry.size is None
+    assert readme.entry.extra["raw_slug"] == "README.md"
+    assert readme.entry.extra["has_slug"] is False
 
     children = await readdir(
         accessor(),
@@ -159,7 +163,7 @@ async def test_read_and_stat_use_segments_and_document_api_size(monkeypatch, ):
     )
 
     data = await read.read_bytes(accessor(), path, index)
-    assert data == b"first\n\nsecond"
+    assert data == b"first\nsecond"
     assert segment_calls["count"] == 1
 
     item = await stat.stat(accessor(), path, index)

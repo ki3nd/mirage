@@ -100,6 +100,29 @@ async def test_dify_get_raises_http_status_errors(httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_dify_post_sends_json_and_retries_server_error(
+        monkeypatch, httpx_mock):
+    sleeps: list[int] = []
+
+    async def sleep(delay: int) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(_client.asyncio, "sleep", sleep)
+    httpx_mock.add_response(status_code=500, json={"message": "temporary"})
+    httpx_mock.add_response(json={"ok": True})
+
+    payload = await _client.dify_post(config(), "/datasets/dataset-1/retrieve",
+                                      {"query": "hello"})
+
+    assert payload == {"ok": True}
+    assert sleeps == [1]
+    requests = httpx_mock.get_requests()
+    assert len(requests) == 2
+    assert requests[0].headers["authorization"] == "Bearer secret"
+    assert requests[0].read() == b'{"query":"hello"}'
+
+
+@pytest.mark.asyncio
 async def test_get_document_segments_paginates_with_server_filters(httpx_mock):
     httpx_mock.add_response(json={
         "data": [{
