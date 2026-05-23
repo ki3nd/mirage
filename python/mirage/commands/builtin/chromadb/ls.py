@@ -1,13 +1,28 @@
+from functools import partial
+
 from mirage.cache.index import IndexCacheStore
-from mirage.commands.builtin.utils.formatting import _human_size
+from mirage.commands.builtin.generic.ls import ls as generic_ls
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
-from mirage.core.chromadb.glob import resolve_glob
-from mirage.core.chromadb.path import is_dir as _is_dir
 from mirage.core.chromadb.readdir import readdir
-from mirage.core.chromadb.stat import stat
+from mirage.core.chromadb.stat import stat, stat_light
 from mirage.io.types import ByteSource, IOResult
-from mirage.types import PathSpec
+from mirage.types import LsSortBy, PathSpec
+
+
+def _default_paths(paths: list[PathSpec], cwd: PathSpec | None) -> list[PathSpec]:
+    if paths:
+        return paths
+    if cwd is not None:
+        return [cwd]
+    return [PathSpec(original="/", directory="/")]
+
+
+async def _readdir(accessor, path: PathSpec,
+                   index: IndexCacheStore | None) -> list[str]:
+    if index is None:
+        raise ValueError("ls: missing index")
+    return await readdir(accessor, path, index)
 
 
 @command("ls", resource="chromadb", spec=SPECS["ls"])
@@ -27,56 +42,26 @@ async def ls(
     R: bool = False,
     d: bool = False,
     F: bool = False,
-    index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
-    if not paths:
-        cwd = _extra.get("cwd", "/")
-        if isinstance(cwd, PathSpec):
-            paths = [cwd]
-        else:
-            paths = [PathSpec(original=cwd, directory=cwd)]
-    paths = await resolve_glob(accessor, paths, index)
-    warnings: list[str] = []
-    output: list[str] = []
-    for path in paths:
-        try:
-            entries = [path.original] if d else await readdir(
-                accessor, path, index)
-        except (FileNotFoundError, NotADirectoryError, ValueError) as exc:
-            warnings.append(f"ls: cannot access '{path.original}': {exc}")
-            continue
-        if not a and not A:
-            entries = [
-                entry for entry in entries
-                if not entry.rstrip("/").rsplit("/", 1)[-1].startswith(".")
-            ]
-        if args_l and not args_1:
-            output.extend(await _long_lines(accessor, entries, path.prefix,
-                                            index, h))
-            continue
-        names = []
-        for entry in entries:
-            name = entry.rstrip("/").rsplit("/", 1)[-1] or "/"
-            if F and await _is_dir(entry, path.prefix, index):
-                name += "/"
-            names.append(name)
-        output.extend(sorted(names, reverse=r))
-    stderr = "\n".join(warnings).encode() if warnings else None
-    exit_code = 1 if warnings and not output else 0
-    return "\n".join(output).encode(), IOResult(stderr=stderr,
-                                                exit_code=exit_code)
-
-
-async def _long_lines(accessor, entries: list[str], prefix: str,
-                      index: IndexCacheStore, human: bool) -> list[str]:
-    stats = []
-    for entry in entries:
-        spec = PathSpec(original=entry, directory=entry, prefix=prefix)
-        stats.append(await stat(accessor, spec, index))
-    lines = []
-    for item in sorted(stats, key=lambda stat: stat.name):
-        size = _human_size(item.size or 0) if human else str(item.size or 0)
-        kind = item.type.value if item.type is not None else "-"
-        lines.append(f"{kind}\t{size}\t{item.modified or ''}\t{item.name}")
-    return lines
+    index = _extra.get("index")
+    cwd = _extra.get("cwd")
+    paths = _default_paths(paths, cwd if isinstance(cwd, PathSpec) else None)
+    sort_by = LsSortBy.TIME if t else LsSortBy.SIZE if S else LsSortBy.NAME
+    stat_fn = partial(stat if (args_l or S) else stat_light,
+                      accessor,
+                      index=index)
+    return await generic_ls(paths,
+                            readdir=partial(_readdir, accessor),
+                            stat=stat_fn,
+                            long=args_l,
+                            one_per_line=args_1,
+                            all_files=a or A,
+                            human=h,
+                            sort_by=sort_by,
+                            reverse=r,
+                            recursive=R,
+                            list_dir=d,
+                            classify=F,
+                            accessor=accessor,
+                            index=index)

@@ -2,21 +2,15 @@ from collections.abc import AsyncIterator
 
 from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.aggregators import concat_aggregate
+from mirage.commands.builtin.generic.cat import cat as generic_cat
 from mirage.commands.builtin.utils.stream import _resolve_source
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.chromadb.glob import resolve_glob
 from mirage.core.chromadb.read import read_stream
 from mirage.io.cachable_iterator import CachableAsyncIterator
-from mirage.io.types import ByteSource, IOResult, materialize
+from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
-
-
-async def _number_lines(source: ByteSource) -> AsyncIterator[bytes]:
-    data = await materialize(source)
-    lines = data.decode(errors="replace").splitlines()
-    for index, line in enumerate(lines, 1):
-        yield f"     {index}\t{line}\n".encode()
 
 
 async def _chain_streams(
@@ -42,7 +36,7 @@ async def cat(
     if not paths:
         source = _resolve_source(stdin, "cat: missing operand")
         if n:
-            return _number_lines(source), IOResult()
+            return generic_cat(source, number_lines=True), IOResult()
         return source, IOResult()
 
     paths = await resolve_glob(accessor, paths, index)
@@ -57,5 +51,6 @@ async def cat(
     source: ByteSource = streams[0] if len(streams) == 1 else _chain_streams(
         streams)
     if n:
-        return _number_lines(source), IOResult(reads=reads, cache=cache)
+        return generic_cat(source, number_lines=True), IOResult(reads=reads,
+                                                                cache=cache)
     return source, IOResult(reads=reads, cache=cache)

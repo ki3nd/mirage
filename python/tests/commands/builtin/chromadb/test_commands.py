@@ -9,6 +9,7 @@ from mirage.commands.builtin.chromadb.find import find
 from mirage.commands.builtin.chromadb.grep import grep
 from mirage.commands.builtin.chromadb.head import head
 from mirage.commands.builtin.chromadb.ls import ls
+from mirage.commands.builtin.chromadb.search import search
 from mirage.commands.builtin.chromadb.tail import tail
 from mirage.commands.builtin.chromadb.tree import tree
 from mirage.io.types import materialize
@@ -38,6 +39,27 @@ class FakeCollection:
         if include is None or "documents" in include:
             result["documents"] = [r["document"] for r in page]
         return result
+
+    def query(
+        self,
+        query_texts: list[str],
+        n_results: int,
+        where: dict | None = None,
+        include: list[str] | None = None,
+    ) -> dict:
+        query = query_texts[0].lower()
+        records = self._filter_records(where, None)
+        scored = sorted(records,
+                        key=lambda record:
+                        (0 if query in record["document"].lower() else 1,
+                         record["document"]))
+        page = scored[:n_results]
+        documents = [record["document"] for record in page]
+        distances = [
+            0.0 if query in record["document"].lower() else 1.0
+            for record in page
+        ]
+        return {"documents": [documents], "distances": [distances]}
 
     def _filter_records(
         self,
@@ -138,9 +160,27 @@ async def test_ls_long_uses_stat_sizes(
         args_l=True)
 
     text = (await _bytes(output)).decode()
-    assert "directory\t0\t\tguides" in text
-    assert "text\t6\t\treadme.md" in text
+    assert "drwxr-xr-x 1 user user 0 Jan  1 00:00 guides" in text
+    assert "-rw-r--r-- 1 user user 6 Jan  1 00:00 readme.md" in text
     assert io.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_ls_uses_cwd_and_supports_list_dir(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    guides = PathSpec(original="/docs/guides",
+                      directory="/docs/guides",
+                      prefix="/docs")
+
+    cwd_output, cwd_io = await ls(accessor, [], cwd=guides, index=index)
+    dir_output, dir_io = await ls(accessor, [guides], d=True, index=index)
+
+    assert await _bytes(cwd_output) == b"quickstart.md"
+    assert cwd_io.exit_code == 0
+    assert await _bytes(dir_output) == b"guides"
+    assert dir_io.exit_code == 0
 
 
 @pytest.mark.asyncio
@@ -171,6 +211,22 @@ async def test_head_and_tail_read_from_stream(
     tail_output, _ = await tail(accessor, [path], n="1", index=index)
 
     assert await _bytes(head_output) == b"line1\n"
+    assert await _bytes(tail_output) == b"line2"
+
+
+@pytest.mark.asyncio
+async def test_head_and_tail_support_byte_counts(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    path = PathSpec(original="/docs/guides/quickstart.md",
+                    directory="/docs/guides/quickstart.md",
+                    prefix="/docs")
+
+    head_output, _ = await head(accessor, [path], c="5", index=index)
+    tail_output, _ = await tail(accessor, [path], c="5", index=index)
+
+    assert await _bytes(head_output) == b"line1"
     assert await _bytes(tail_output) == b"line2"
 
 
@@ -318,6 +374,41 @@ async def test_grep_recursive_returns_exit_one_without_matches(
     assert await _bytes(output) == b""
     assert io.exit_code == 1
     assert io.cache == []
+
+
+@pytest.mark.asyncio
+async def test_search_scopes_results_to_matching_paths(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    output, io = await search(
+        accessor,
+        [PathSpec(original="/docs/guides", directory="/docs/guides",
+                  prefix="/docs")],
+        "line",
+        method="keyword",
+        index=index,
+    )
+
+    assert await _bytes(output) == b"line1\nline2"
+    assert io.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_search_root_queries_whole_collection(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    output, io = await search(
+        accessor,
+        [PathSpec(original="/docs", directory="/docs", prefix="/docs")],
+        "readme",
+        method="semantic",
+        index=index,
+    )
+
+    assert await _bytes(output) == b"readme\nline1\nline2"
+    assert io.exit_code == 0
 
 
 @pytest.mark.asyncio

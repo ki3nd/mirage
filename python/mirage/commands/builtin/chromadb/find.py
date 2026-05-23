@@ -1,40 +1,51 @@
-import fnmatch
+import dataclasses
+from functools import partial
 
 from mirage.cache.index import IndexCacheStore
-from mirage.commands.builtin.generic.find import parse_find_args
+from mirage.commands.builtin.generic.find import find as generic_find
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
-from mirage.core.chromadb.glob import resolve_glob
-from mirage.core.chromadb.path import is_dir as _is_dir
-from mirage.core.chromadb.path import resolve_path
-from mirage.core.chromadb.readdir import readdir
-from mirage.core.chromadb.stat import stat
+from mirage.core.chromadb.find import find as find_core
+from mirage.core.chromadb.stat import stat as stat_core
+from mirage.core.chromadb.stat import stat_light
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
 
 
-async def _walk(accessor,
-                path: PathSpec,
-                index: IndexCacheStore,
-                maxdepth: int | None,
-                depth: int = 0) -> list[str]:
-    resolved = await resolve_path(accessor, path, index)
-    results: list[str] = []
-    results.append(path.original)
-    if not resolved.is_dir or (maxdepth is not None and depth >= maxdepth):
-        return results
-    children = await readdir(accessor, path, index)
-    for child in children:
-        if await _is_dir(child, path.prefix, index):
-            child_spec = PathSpec(original=child,
-                                  directory=child,
-                                  resolved=False,
-                                  prefix=path.prefix)
-            results.extend(await _walk(accessor, child_spec, index, maxdepth,
-                                       depth + 1))
-            continue
-        results.append(child)
-    return results
+def _normalize_path(path: PathSpec) -> PathSpec:
+    prefix = path.prefix.rstrip("/")
+    if prefix == path.prefix:
+        return path
+    return dataclasses.replace(path, prefix=prefix)
+
+
+def _default_paths(paths: list[PathSpec], cwd: PathSpec | None) -> list[PathSpec]:
+    if paths:
+        return [_normalize_path(path) for path in paths]
+    if cwd is not None:
+        return [_normalize_path(cwd)]
+    return [PathSpec(original="/", directory="/")]
+
+
+def _default_name(name: str | None, texts: tuple[str, ...]) -> str | None:
+    if name is not None:
+        return name
+    if texts and not texts[0].startswith("-"):
+        return texts[0]
+    return None
+
+
+async def _normalize_find_output(
+    stdout: ByteSource | None,
+    search_path: PathSpec,
+) -> ByteSource | None:
+    if stdout is None:
+        return None
+    data = stdout if isinstance(stdout, bytes) else b""
+    root = search_path.prefix.rstrip("/") or "/"
+    lines = data.decode().splitlines()
+    normalized = [root if line == root + "/" else line for line in lines]
+    return "\n".join(normalized).encode()
 
 
 @command("find", resource="chromadb", spec=SPECS["find"])
@@ -51,78 +62,28 @@ async def find(
     iname: str | None = None,
     path: str | None = None,
     mindepth: str | None = None,
-    index: IndexCacheStore = None,
+    index: IndexCacheStore | None = None,
+    cwd: PathSpec | None = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
-    paths = await resolve_glob(accessor, paths, index)
-    search = paths[0] if paths else PathSpec(original="/", directory="/")
-    args = parse_find_args(texts,
-                           name=name,
-                           type=type,
-                           size=size,
-                           maxdepth=maxdepth,
-                           iname=iname,
-                           path=path,
-                           mindepth=mindepth)
-    try:
-        all_paths = await _walk(accessor, search, index, args.maxdepth)
-    except FileNotFoundError as exc:
-        stderr = f"find: '{search.original}': {exc}".encode()
-        return b"", IOResult(stderr=stderr, exit_code=1)
-    matches = []
-    for item in sorted(all_paths):
-        item_name = item.rsplit("/", 1)[-1]
-        depth = _relative_depth(item, search.original)
-        if args.mindepth is not None and depth < args.mindepth:
-            continue
-        if args.name and not fnmatch.fnmatch(item_name, args.name):
-            continue
-        if args.iname and not fnmatch.fnmatch(item_name.lower(),
-                                              args.iname.lower()):
-            continue
-        if args.name_exclude and fnmatch.fnmatch(item_name, args.name_exclude):
-            continue
-        if args.path_pattern and not fnmatch.fnmatch(item, args.path_pattern):
-            continue
-        if args.or_names and not any(
-                fnmatch.fnmatch(item_name, pattern)
-                for pattern in args.or_names):
-            continue
-        if args.type == "f" and await _is_dir(item, search.prefix, index):
-            continue
-        if args.type == "d" and not await _is_dir(item, search.prefix, index):
-            continue
-        if not await _matches_stat_filters(accessor, item, search.prefix,
-                                           index, args):
-            continue
-        matches.append(item)
-    return "\n".join(matches).encode(), IOResult()
-
-
-def _relative_depth(item: str, root: str) -> int:
-    root_norm = root.rstrip("/") or "/"
-    item_norm = item.rstrip("/") or "/"
-    if item_norm == root_norm:
-        return 0
-    if root_norm == "/":
-        relative = item_norm.strip("/")
-    else:
-        relative = item_norm.removeprefix(root_norm).lstrip("/")
-    if not relative:
-        return 0
-    return relative.count("/") + 1
-
-
-async def _matches_stat_filters(accessor, path: str, prefix: str,
-                                index: IndexCacheStore, args) -> bool:
-    if args.min_size is None and args.max_size is None:
-        return True
-    spec = PathSpec(original=path, directory=path, prefix=prefix)
-    item_stat = await stat(accessor, spec, index)
-    if item_stat.size is None:
-        return False
-    if args.min_size is not None and item_stat.size < args.min_size:
-        return False
-    if args.max_size is not None and item_stat.size > args.max_size:
-        return False
-    return True
+    paths = _default_paths(paths, cwd)
+    search_path = paths[0]
+    stat_fn = (partial(stat_core, accessor, index=index)
+               if mtime is not None else partial(stat_light,
+                                                 accessor,
+                                                 index=index))
+    stdout, io = await generic_find(paths,
+                                    texts,
+                                    find_core=partial(find_core,
+                                                      accessor,
+                                                      index=index),
+                                    stat=stat_fn,
+                                    name=_default_name(name, texts),
+                                    type=type,
+                                    size=size,
+                                    mtime=mtime,
+                                    maxdepth=maxdepth,
+                                    iname=iname,
+                                    path=path,
+                                    mindepth=mindepth)
+    return await _normalize_find_output(stdout, search_path), io

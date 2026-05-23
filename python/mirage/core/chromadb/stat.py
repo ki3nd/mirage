@@ -5,6 +5,25 @@ from mirage.types import FileStat, FileType, PathSpec
 from mirage.utils.filetype import guess_type
 
 
+async def stat_light(accessor, path: PathSpec,
+                     index: IndexCacheStore) -> FileStat:
+    resolved = await resolve_path(accessor, path, index)
+    if resolved.is_dir:
+        return FileStat(
+            name=_stat_name(resolved.virtual_key, resolved.mount_prefix),
+            type=FileType.DIRECTORY,
+        )
+    return FileStat(
+        name=resolved.entry.name,
+        type=guess_type(resolved.entry.extra["path"]),
+        size=None,
+        modified=None,
+        fingerprint=None,
+        revision=None,
+        extra=dict(resolved.entry.extra),
+    )
+
+
 async def stat(accessor, path: PathSpec, index: IndexCacheStore) -> FileStat:
     resolved = await resolve_path(accessor, path, index)
     if resolved.is_dir:

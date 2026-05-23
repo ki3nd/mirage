@@ -27,11 +27,10 @@ def test_resource_registers_ops_and_commands() -> None:
     res = ChromaDBResource(
         ChromaDBConfig(host="localhost", collection_name="docs"))
 
-    assert {"read", "readdir", "stat",
-            "grep"} <= {ro.name
+    assert {"read", "readdir", "stat", "grep", "search"} <= {ro.name
                         for ro in res.ops_list()}
-    assert {"cat", "find", "grep", "head", "ls", "tail",
-            "tree"} <= {rc.name
+    assert {"cat", "find", "grep", "head", "ls", "tail", "tree",
+            "search"} <= {rc.name
                         for rc in res.commands()}
 
 
