@@ -2,6 +2,7 @@ import fnmatch
 
 from mirage.cache.index import IndexCacheStore
 from mirage.core.dify.readdir import readdir
+from mirage.core.dify.walk import walk
 from mirage.types import PathSpec
 
 
@@ -18,7 +19,10 @@ async def resolve_glob(accessor, paths: list,
             continue
         if path.pattern == "**":
             children = [
-                child for child in await walk(accessor, path.dir, index)
+                child for child in await walk(accessor,
+                                             path.dir,
+                                             index,
+                                             ignore_missing=True)
                 if await is_file(index, child)
             ]
         else:
@@ -33,22 +37,6 @@ async def resolve_glob(accessor, paths: list,
                              resolved=True,
                              prefix=path.prefix))
     return resolved
-
-
-async def walk(accessor, path: PathSpec, index: IndexCacheStore) -> list[str]:
-    results: list[str] = []
-    try:
-        children = await readdir(accessor, path, index)
-    except (FileNotFoundError, NotADirectoryError):
-        return results
-    for child in children:
-        results.append(child)
-        child_path = PathSpec(original=child,
-                              directory=child,
-                              resolved=False,
-                              prefix=path.prefix)
-        results.extend(await walk(accessor, child_path, index))
-    return results
 
 
 async def is_file(index: IndexCacheStore, path: str) -> bool:

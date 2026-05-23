@@ -1,3 +1,6 @@
+from mirage.commands.builtin.aggregators import wc_aggregate
+from mirage.commands.builtin.generic.wc import WCCounts, format_wc
+from mirage.commands.builtin.generic.wc import wc as generic_wc
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.dify.glob import resolve_glob
@@ -6,7 +9,7 @@ from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
 
 
-@command("wc", resource="dify", spec=SPECS["wc"])
+@command("wc", resource="dify", spec=SPECS["wc"], aggregate=wc_aggregate)
 async def wc(
     accessor,
     paths: list[PathSpec],
@@ -14,30 +17,35 @@ async def wc(
     args_l: bool = False,
     w: bool = False,
     c: bool = False,
+    m: bool = False,
+    L: bool = False,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     index = _extra.get("index")
     paths = await resolve_glob(accessor, paths, index)
     reads: dict[str, bytes] = {}
     output: list[str] = []
+    totals = WCCounts()
     for path in paths:
         data = await read_bytes(accessor, path, index)
         reads[path.original] = data
-        text = data.decode(errors="replace")
-        values = [
-            str(line_count(text)),
-            str(len(text.split())),
-            str(len(data))
-        ]
-        if args_l:
-            values = [values[0]]
-        elif w:
-            values = [values[1]]
-        elif c:
-            values = [values[2]]
-        output.append(" ".join([*values, path.original]))
+        counts = await generic_wc(data)
+        totals.merge(counts)
+        output.append(
+            format_wc(counts,
+                      args_l=args_l,
+                      w=w,
+                      c=c,
+                      m=m,
+                      L=L,
+                      label=path.original))
+    if len(paths) > 1:
+        output.append(
+            format_wc(totals,
+                      args_l=args_l,
+                      w=w,
+                      c=c,
+                      m=m,
+                      L=L,
+                      label="total"))
     return "\n".join(output).encode(), IOResult(reads=reads, cache=list(reads))
-
-
-def line_count(text: str) -> int:
-    return text.count("\n") + (1 if text else 0)

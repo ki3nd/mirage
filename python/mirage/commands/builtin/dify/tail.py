@@ -14,10 +14,13 @@ async def tail(
     *texts: str,
     n: int | str = 10,
     args_n: int | str | None = None,
+    c: int | str | None = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     index = _extra.get("index")
     limit = int(args_n if args_n is not None else n)
+    bytes_limit = int(c) if c is not None else None
     paths = await resolve_glob(accessor, paths, index)
     return generic_tail(read_stream(accessor, paths[0], index),
-                        n=limit), IOResult()
+                        n=limit,
+                        c=bytes_limit), IOResult()

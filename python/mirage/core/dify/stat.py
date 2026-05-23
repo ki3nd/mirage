@@ -7,6 +7,28 @@ from mirage.core.dify.tree import extract_document_size
 from mirage.types import FileStat, FileType, PathSpec
 
 
+async def stat_light(accessor, path: PathSpec,
+                     index: IndexCacheStore) -> FileStat:
+    resolved = await resolve_path(accessor, path, index)
+    if resolved.is_dir:
+        return FileStat(
+            name=stat_name(resolved.virtual_key, resolved.mount_prefix),
+            type=FileType.DIRECTORY,
+            extra={"children_count": 0},
+        )
+    if resolved.entry is None:
+        raise FileNotFoundError(path.original)
+    return FileStat(
+        name=resolved.entry.name,
+        type=FileType.TEXT,
+        size=resolved.entry.size,
+        modified=timestamp_to_zulu(resolved.entry.remote_time),
+        fingerprint=None,
+        revision=None,
+        extra=dict(resolved.entry.extra),
+    )
+
+
 async def stat(accessor, path: PathSpec, index: IndexCacheStore) -> FileStat:
     resolved = await resolve_path(accessor, path, index)
     if resolved.is_dir:
