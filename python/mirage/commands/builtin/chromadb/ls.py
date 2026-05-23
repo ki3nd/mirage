@@ -27,9 +27,9 @@ async def ls(
     R: bool = False,
     d: bool = False,
     F: bool = False,
+    index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
-    index = _extra.get("index")
     if not paths:
         cwd = _extra.get("cwd", "/")
         if isinstance(cwd, PathSpec):

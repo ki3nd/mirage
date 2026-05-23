@@ -70,9 +70,9 @@ async def tree(
     args_I: str | None = None,
     d: bool = False,
     P: str | None = None,
+    index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
-    index = _extra.get("index")
     paths = await resolve_glob(accessor, paths, index)
     path = paths[0] if paths else PathSpec(original="/", directory="/")
     max_depth = int(L) if L is not None else None
