@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 
+from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.aggregators import concat_aggregate
 from mirage.commands.builtin.utils.stream import _resolve_source
 from mirage.commands.registry import command
@@ -35,6 +36,7 @@ async def cat(
     *texts: str,
     stdin: AsyncIterator[bytes] | bytes | None = None,
     n: bool = False,
+    index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     if not paths:
@@ -43,13 +45,12 @@ async def cat(
             return _number_lines(source), IOResult()
         return source, IOResult()
 
-    paths = await resolve_glob(accessor, paths, _extra.get("index"))
+    paths = await resolve_glob(accessor, paths, index)
     streams: list[CachableAsyncIterator] = []
     reads = {}
     cache = []
     for path in paths:
-        stream = CachableAsyncIterator(
-            read_stream(accessor, path, _extra.get("index")))
+        stream = CachableAsyncIterator(read_stream(accessor, path, index))
         streams.append(stream)
         reads[path.strip_prefix] = stream
         cache.append(path.strip_prefix)
