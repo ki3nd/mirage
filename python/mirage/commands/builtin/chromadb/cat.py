@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 
+from mirage.commands.builtin.aggregators import concat_aggregate
 from mirage.commands.builtin.utils.stream import _resolve_source
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
@@ -24,7 +25,10 @@ async def _chain_streams(
             yield chunk
 
 
-@command("cat", resource="chromadb", spec=SPECS["cat"])
+@command("cat",
+         resource="chromadb",
+         spec=SPECS["cat"],
+         aggregate=concat_aggregate)
 async def cat(
     accessor,
     paths: list[PathSpec],

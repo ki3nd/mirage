@@ -14,6 +14,9 @@ async def _head_bytes(data: bytes, lines: int,
     if bytes_mode is not None:
         yield data[:bytes_mode]
         return
+    if lines == 0:
+        yield b""
+        return
     parts = data.split(b"\n", lines)
     result = b"\n".join(parts[:lines])
     if len(parts) > lines:

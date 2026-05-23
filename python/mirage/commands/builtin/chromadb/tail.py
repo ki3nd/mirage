@@ -14,6 +14,9 @@ async def _tail_bytes(data: bytes, lines: int,
     if bytes_mode is not None:
         yield data[-bytes_mode:] if bytes_mode else b""
         return
+    if lines == 0:
+        yield b""
+        return
     trailing_newline = data.endswith(b"\n")
     parts = data.split(b"\n")
     if trailing_newline and parts and parts[-1] == b"":

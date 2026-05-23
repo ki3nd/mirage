@@ -170,8 +170,24 @@ async def test_head_and_tail_read_from_stream(
     head_output, _ = await head(accessor, [path], n="1", index=index)
     tail_output, _ = await tail(accessor, [path], n="1", index=index)
 
-    assert await _bytes(head_output) == b"line1"
+    assert await _bytes(head_output) == b"line1\n"
     assert await _bytes(tail_output) == b"line2"
+
+
+@pytest.mark.asyncio
+async def test_head_and_tail_zero_lines_return_empty(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    path = PathSpec(original="/docs/guides/quickstart.md",
+                    directory="/docs/guides/quickstart.md",
+                    prefix="/docs")
+
+    head_output, _ = await head(accessor, [path], n="0", index=index)
+    tail_output, _ = await tail(accessor, [path], n="0", index=index)
+
+    assert await _bytes(head_output) == b""
+    assert await _bytes(tail_output) == b""
 
 
 @pytest.mark.asyncio
@@ -188,6 +204,75 @@ async def test_find_filters_by_name_and_type(
 
     assert await _bytes(output
                         ) == b"/docs/guides/quickstart.md\n/docs/readme.md"
+    assert io.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_find_returns_file_operand(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    output, io = await find(
+        accessor,
+        [
+            PathSpec(original="/docs/readme.md",
+                     directory="/docs/readme.md",
+                     prefix="/docs")
+        ],
+        index=index)
+
+    assert await _bytes(output) == b"/docs/readme.md"
+    assert io.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_find_missing_path_returns_error(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    output, io = await find(
+        accessor,
+        [
+            PathSpec(original="/docs/missing.md",
+                     directory="/docs/missing.md",
+                     prefix="/docs")
+        ],
+        index=index)
+
+    assert await _bytes(output) == b""
+    assert io.stderr is not None
+    assert b"/docs/missing.md" in io.stderr
+    assert io.exit_code == 1
+
+
+@pytest.mark.asyncio
+async def test_find_maxdepth_zero_returns_start_path(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    output, io = await find(
+        accessor,
+        [PathSpec(original="/docs", directory="/docs", prefix="/docs")],
+        maxdepth="0",
+        index=index)
+
+    assert await _bytes(output) == b"/docs"
+    assert io.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_find_size_filters_files(
+    accessor: FakeAccessor,
+    index: RAMIndexCacheStore,
+) -> None:
+    output, io = await find(
+        accessor,
+        [PathSpec(original="/docs", directory="/docs", prefix="/docs")],
+        type="f",
+        size="+7",
+        index=index)
+
+    assert await _bytes(output) == b"/docs/guides/quickstart.md"
     assert io.exit_code == 0
 
 

@@ -339,15 +339,17 @@ async def test_grep_paths_coarse_then_fine(index: RAMIndexCacheStore) -> None:
     assert result.reads == {
         "/guides/auth.md": b"access token overview\nfull page details"
     }
-    assert {
-        "include": ["metadatas"],
-        "limit": 2,
-        "offset": 0,
-        "where": None,
-        "where_document": {
-            "$contains": "token"
-        },
-    } in accessor.collection.calls
+    coarse_calls = [
+        call for call in accessor.collection.calls
+        if call["include"] == ["metadatas"]
+        and call["where_document"] == {"$contains": "token"}
+    ]
+    assert coarse_calls[0]["limit"] == 2
+    assert coarse_calls[0]["offset"] == 0
+    assert set(coarse_calls[0]["where"]["page_slug"]["$in"]) == {
+        "guides/auth.md",
+        "guides/billing.md",
+    }
     fetch_calls = [
         call for call in accessor.collection.calls
         if call["include"] == ["documents", "metadatas"]
