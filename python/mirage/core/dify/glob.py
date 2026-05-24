@@ -1,9 +1,14 @@
 import fnmatch
+import logging
 
 from mirage.cache.index import IndexCacheStore
 from mirage.core.dify.readdir import readdir
 from mirage.core.dify.walk import walk
 from mirage.types import PathSpec
+
+logger = logging.getLogger(__name__)
+
+SCOPE_ERROR = 50000
 
 
 async def resolve_glob(accessor, paths: list,
@@ -19,23 +24,26 @@ async def resolve_glob(accessor, paths: list,
             continue
         if path.pattern == "**":
             children = [
-                child for child in await walk(accessor,
-                                             path.dir,
-                                             index,
-                                             ignore_missing=True)
+                child for child in await walk(
+                    accessor, path.dir, index, ignore_missing=True)
                 if await is_file(index, child)
             ]
         else:
             children = await readdir(accessor, path.dir, index)
-        for child in children:
-            name = child.rstrip("/").rsplit("/", 1)[-1]
+        matched = [
+            PathSpec.from_str_path(child, path.prefix) for child in children
             if path.pattern in {None, "**"} or fnmatch.fnmatch(
-                    name, path.pattern):
-                resolved.append(
-                    PathSpec(original=child,
-                             directory=child,
-                             resolved=True,
-                             prefix=path.prefix))
+                child.rstrip("/").rsplit("/", 1)[-1], path.pattern)
+        ]
+        if len(matched) > SCOPE_ERROR:
+            logger.warning(
+                "%s: %d matches exceeds limit (%d), truncating",
+                path.directory,
+                len(matched),
+                SCOPE_ERROR,
+            )
+            matched = matched[:SCOPE_ERROR]
+        resolved.extend(matched)
     return resolved
 
 

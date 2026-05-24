@@ -35,10 +35,7 @@ async def walk(
         raise
 
     for child in children:
-        child_path = PathSpec(original=child,
-                              directory=child,
-                              resolved=False,
-                              prefix=path.prefix)
+        child_path = PathSpec.from_str_path(child, path.prefix)
         results.extend(await walk(accessor,
                                   child_path,
                                   index,

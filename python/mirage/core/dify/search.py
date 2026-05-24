@@ -123,9 +123,7 @@ async def target_entries(
                                   include_root=False,
                                   strip_prefix=False)
             for child in children:
-                child_spec = PathSpec(original=child,
-                                      directory=child,
-                                      prefix=path.prefix)
+                child_spec = PathSpec.from_str_path(child, path.prefix)
                 child_resolved = await resolve_path(accessor, child_spec,
                                                     index)
                 if (child_resolved.entry is not None

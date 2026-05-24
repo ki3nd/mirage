@@ -34,9 +34,10 @@ async def find(
                          strip_prefix=True)
     filtered: list[str] = []
     for item in results:
-        if await _matches(accessor, item, path.prefix, index, path.strip_prefix,
-                          name, type, min_size, max_size, name_exclude,
-                          or_names, iname, path_pattern, mindepth):
+        if await _matches(accessor, item, path.prefix, index,
+                          path.strip_prefix, name, type, min_size, max_size,
+                          name_exclude, or_names, iname, path_pattern,
+                          mindepth):
             filtered.append(item)
     return sorted(filtered)
 
@@ -68,10 +69,10 @@ async def _matches(
         return False
     if name_exclude and fnmatch.fnmatch(item_name, name_exclude):
         return False
-    if or_names and not any(fnmatch.fnmatch(item_name, pattern)
-                            for pattern in or_names):
+    if or_names and not any(
+            fnmatch.fnmatch(item_name, pattern) for pattern in or_names):
         return False
-    spec = PathSpec(original=item, directory=item, prefix=prefix)
+    spec = PathSpec.from_str_path(item, prefix)
     if type is not None:
         resolved = await resolve_path(accessor, spec, index)
         if type == FindType.FILE and resolved.is_dir:
