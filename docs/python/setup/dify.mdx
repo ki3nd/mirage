@@ -1,0 +1,72 @@
+---
+title: Dify
+icon: brain
+description: Set up the Dify Knowledge resource in Python.
+---
+
+## Dependencies
+
+No additional dependencies are required beyond the Python package. The Dify
+resource uses `httpx` for async API calls.
+
+For credential setup, see the [Dify Setup](/home/setup/dify) guide.
+
+## Configuration
+
+```python
+import os
+
+from mirage import MountMode, Workspace
+from mirage.resource.dify import DifyConfig, DifyResource
+
+config = DifyConfig(
+    api_key=os.environ["DIFY_API_KEY"],
+    base_url=os.environ.get("DIFY_BASE_URL", "https://api.dify.ai/v1"),
+    dataset_id=os.environ["DIFY_DATASET_ID"],
+)
+resource = DifyResource(config=config)
+ws = Workspace({"/knowledge/": resource}, mode=MountMode.READ)
+```
+
+## Config Reference
+
+| Field        | Required | Default                    | Description             |
+| ------------ | -------- | -------------------------- | ----------------------- |
+| `api_key`    | Yes      |                            | Dify Knowledge API key  |
+| `base_url`   | Yes      |                            | Dify API base URL       |
+| `dataset_id` | Yes      |                            | Dify Knowledge dataset  |
+
+`DifyConfig` normalizes `base_url` by removing a trailing slash.
+
+## Environment Example
+
+```bash
+# .env.development
+DIFY_API_KEY=dataset-...
+DIFY_BASE_URL=https://api.dify.ai/v1
+DIFY_DATASET_ID=...
+```
+
+## Metadata Setup
+
+For stable filesystem paths and scoped search, add a Dify document metadata
+field named `slug`.
+
+```text
+name: slug
+value: guides/quickstart.md
+```
+
+Mirage maps that document to:
+
+```text
+/knowledge/guides/quickstart.md
+```
+
+If a document does not have `slug`, Mirage uses the document name as the path.
+To make scoped `search` work for those name-based documents, enable Dify's
+Built-in Fields in the dataset metadata settings so `document_name` can be used
+as a metadata filter.
+
+See [Dify Setup](/home/setup/dify#document-metadata) for the full metadata
+checklist.
