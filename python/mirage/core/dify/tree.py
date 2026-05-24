@@ -17,6 +17,7 @@ async def ensure_tree(accessor,
     dir_entries = build_dir_entries(
         [document for document in documents if is_visible_document(document)],
         prefix,
+        accessor.config.slug_metadata_name,
     )
     for directory in sorted(dir_entries):
         await index.set_dir(
@@ -27,16 +28,18 @@ async def ensure_tree(accessor,
 def build_dir_entries(
     documents: list[dict[str, Any]],
     prefix: str,
+    slug_metadata_name: str = "slug",
 ) -> dict[str, list[tuple[str, IndexEntry]]]:
     files: dict[str, dict[str, Any]] = {}
     raw_slugs: dict[str, str] = {}
     has_slugs: dict[str, bool] = {}
     for document in documents:
-        slug, has_slug = extract_slug(document)
+        slug, has_slug = extract_slug(document, slug_metadata_name)
         path = normalize_slug(slug)
         if path in files:
+            value = path.strip("/")
             raise ValueError(
-                f"Duplicate slug '{path.strip('/')}': documents "
+                f"Duplicate {slug_metadata_name} '{value}': documents "
                 f"'{files[path].get('id')}' and '{document.get('id')}' share "
                 "the same path.")
         files[path] = document
@@ -69,6 +72,7 @@ def build_dir_entries(
             remote_time=timestamp_to_iso(document.get("created_at")),
             extra={
                 "slug": path.strip("/"),
+                "slug_metadata_name": slug_metadata_name,
                 "raw_slug": raw_slugs[path],
                 "has_slug": has_slugs[path],
                 "tokens": document.get("tokens"),
@@ -81,16 +85,19 @@ def build_dir_entries(
     return dir_entries
 
 
-def extract_slug(document: dict[str, Any]) -> tuple[str, bool]:
+def extract_slug(document: dict[str, Any],
+                 slug_metadata_name: str = "slug") -> tuple[str, bool]:
     metadata = document.get("doc_metadata")
     if isinstance(metadata, list):
         for item in metadata:
-            if isinstance(item, dict) and item.get("name") == "slug":
+            if (isinstance(item, dict)
+                    and item.get("name") == slug_metadata_name):
                 value = item.get("value")
                 if value is not None:
                     return str(value), True
-    if isinstance(metadata, dict) and metadata.get("slug") is not None:
-        return str(metadata["slug"]), True
+    if (isinstance(metadata, dict)
+            and metadata.get(slug_metadata_name) is not None):
+        return str(metadata[slug_metadata_name]), True
     return str(document["name"]), False
 
 

@@ -35,7 +35,7 @@ def document(
 
 
 def accessor() -> SimpleNamespace:
-    return SimpleNamespace(config=SimpleNamespace())
+    return SimpleNamespace(config=SimpleNamespace(slug_metadata_name="slug"))
 
 
 @pytest.mark.asyncio

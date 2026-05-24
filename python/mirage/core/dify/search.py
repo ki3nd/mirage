@@ -92,7 +92,7 @@ async def metadata_conditions(
     conditions: list[dict] = []
     if slug_values:
         conditions.append({
-            "name": "slug",
+            "name": accessor.config.slug_metadata_name,
             "comparison_operator": "in",
             "value": sorted(slug_values),
         })

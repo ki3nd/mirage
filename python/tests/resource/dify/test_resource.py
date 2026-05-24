@@ -21,6 +21,7 @@ def test_dify_resource_is_registered_and_redacts_api_key():
     assert resource.is_remote is True
     assert resource.SUPPORTS_SNAPSHOT is False
     assert resource.config.base_url == "https://api.dify.ai/v1"
+    assert resource.config.slug_metadata_name == "slug"
     assert resource.accessor.config is resource.config
 
     state = resource.get_state()
@@ -29,6 +30,21 @@ def test_dify_resource_is_registered_and_redacts_api_key():
     assert state["redacted_fields"] == ["api_key"]
     assert state["config"]["api_key"] == "<REDACTED>"
     assert state["config"]["dataset_id"] == "dataset-1"
+    assert state["config"]["slug_metadata_name"] == "slug"
+
+
+def test_dify_resource_accepts_configured_slug_metadata_name():
+    resource = build_resource(
+        "dify",
+        {
+            "api_key": "dataset-secret",
+            "base_url": "https://api.dify.ai/v1",
+            "dataset_id": "dataset-1",
+            "slug_metadata_name": "path",
+        },
+    )
+
+    assert resource.config.slug_metadata_name == "path"
 
 
 def test_dify_resource_registers_expected_commands_and_ops():

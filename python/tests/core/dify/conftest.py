@@ -73,7 +73,8 @@ async def noop_ensure_tree(accessor, index, prefix=""):
 
 @pytest.fixture
 def dify_accessor() -> SimpleNamespace:
-    return SimpleNamespace(config=SimpleNamespace(dataset_id="dataset-1"))
+    return SimpleNamespace(config=SimpleNamespace(dataset_id="dataset-1",
+                                                  slug_metadata_name="slug"))
 
 
 @pytest.fixture

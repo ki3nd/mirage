@@ -8,7 +8,8 @@ from mirage.types import FileStat, FileType, PathSpec
 
 @pytest.fixture
 def dify_accessor() -> SimpleNamespace:
-    return SimpleNamespace(config=SimpleNamespace(dataset_id="dataset-1"))
+    return SimpleNamespace(config=SimpleNamespace(dataset_id="dataset-1",
+                                                  slug_metadata_name="slug"))
 
 
 @pytest.fixture

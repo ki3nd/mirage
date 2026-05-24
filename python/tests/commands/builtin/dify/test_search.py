@@ -30,7 +30,7 @@ def document(document_id: str, name: str, slug: str | None = None) -> dict:
 
 
 def accessor() -> SimpleNamespace:
-    return SimpleNamespace(config=SimpleNamespace())
+    return SimpleNamespace(config=SimpleNamespace(slug_metadata_name="slug"))
 
 
 @pytest.mark.asyncio

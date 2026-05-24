@@ -86,6 +86,21 @@ def test_tree_slug_and_timestamp_helpers():
         },
         "name": "fallback"
     }) == ("a/b", True)
+    assert tree.extract_slug(
+        {
+            "doc_metadata": [{
+                "name": "path",
+                "value": "docs/start"
+            }],
+            "name": "fallback"
+        }, "path") == ("docs/start", True)
+    assert tree.extract_slug(
+        {
+            "doc_metadata": {
+                "path": "docs/map"
+            },
+            "name": "fallback"
+        }, "path") == ("docs/map", True)
     assert tree.normalize_slug("/a//b/") == "/a/b"
     assert tree.extract_document_size(
         {"data_source_info": {

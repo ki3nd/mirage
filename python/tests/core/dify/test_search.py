@@ -29,7 +29,30 @@ def document(document_id: str, name: str, slug: str | None = None) -> dict:
 
 
 def accessor() -> SimpleNamespace:
-    return SimpleNamespace(config=SimpleNamespace(dataset_id="dataset-1"))
+    return SimpleNamespace(config=SimpleNamespace(dataset_id="dataset-1",
+                                                  slug_metadata_name="slug"))
+
+
+def custom_slug_accessor() -> SimpleNamespace:
+    return SimpleNamespace(config=SimpleNamespace(dataset_id="dataset-1",
+                                                  slug_metadata_name="path"))
+
+
+custom_slug_search_bodies: list[dict] = []
+
+
+async def list_path_metadata_documents(config):
+    return [{
+        **document("doc-1", "API"), "doc_metadata": [{
+            "name": "path",
+            "value": "guides/api"
+        }]
+    }]
+
+
+async def record_empty_custom_slug_search(config, endpoint, body):
+    custom_slug_search_bodies.append(body)
+    return {"records": []}
 
 
 @pytest.mark.asyncio
@@ -140,6 +163,38 @@ async def test_search_segments_unions_slug_and_name_based_paths(monkeypatch):
             "value": ["README.md"],
         }],
     }
+
+
+@pytest.mark.asyncio
+async def test_search_segments_uses_configured_slug_metadata_name(monkeypatch):
+    from mirage.core.dify import search, tree
+
+    custom_slug_search_bodies.clear()
+    monkeypatch.setattr(tree, "list_all_documents",
+                        list_path_metadata_documents)
+    monkeypatch.setattr(search, "dify_post", record_empty_custom_slug_search)
+
+    await search.search_segments(
+        custom_slug_accessor(),
+        "setup",
+        [
+            PathSpec(original="/knowledge/guides/api",
+                     directory="/knowledge/guides/api",
+                     prefix="/knowledge/")
+        ],
+        RAMIndexCacheStore(),
+    )
+
+    assert custom_slug_search_bodies[0]["retrieval_model"][
+        "metadata_filtering_conditions"] == {
+            "logical_operator":
+            "or",
+            "conditions": [{
+                "name": "path",
+                "comparison_operator": "in",
+                "value": ["guides/api"],
+            }],
+        }
 
 
 @pytest.mark.asyncio

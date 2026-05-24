@@ -34,6 +34,7 @@ used in API paths such as:
 DIFY_API_KEY=dataset-...
 DIFY_BASE_URL=https://api.dify.ai/v1
 DIFY_DATASET_ID=...
+DIFY_SLUG_METADATA_NAME=slug
 ```
 
 For self-hosted Dify, set `DIFY_BASE_URL` to your API base URL, for example:
@@ -45,27 +46,32 @@ DIFY_BASE_URL=https://dify.example.com/v1
 ## Document Metadata
 
 Mirage can mount a Dify dataset without custom metadata, but scoped search works
-best when every document has a stable `slug` metadata field.
+best when every document has a stable slug metadata field. Mirage looks for a
+field named `slug` by default; Python users can change that field name with
+`DifyConfig(slug_metadata_name="...")`.
 
-### Recommended: Add a `slug` Metadata Field
+### Recommended: Add a Slug Metadata Field
 
-Create a metadata field named exactly `slug` on the Dify knowledge dataset. Use
-the value as the virtual path below the Mirage mount.
+Create a metadata field on the Dify knowledge dataset and use the value as the
+virtual path below the Mirage mount. The default field name is `slug`.
 
 | Dify document | `slug` metadata value | Mirage path |
 | ------------- | --------------------- | ----------- |
 | Quickstart | `guides/quickstart.md` | `/knowledge/guides/quickstart.md` |
 | Support Policy | `policies/support.md` | `/knowledge/policies/support.md` |
 
+If your Dify metadata field is named `path`, set `slug_metadata_name="path"` in
+the Dify resource config and use `name: path` in Dify metadata.
+
 Guidelines:
 
 - Use forward slashes to create folders.
 - Do not start with `/`; Mirage normalizes leading and trailing slashes.
 - Do not use empty segments, `.`, or `..`.
-- Keep values unique. Two documents with the same `slug` will raise a duplicate path error.
-- Avoid making one document's slug a parent of another document's slug. For example, do not use both `guides` and `guides/quickstart.md`; Mirage treats that as a path collision.
+- Keep values unique. Two documents with the same slug metadata value will raise a duplicate path error.
+- Avoid making one document's slug metadata value a parent of another document's slug metadata value. For example, do not use both `guides` and `guides/quickstart.md`; Mirage treats that as a path collision.
 
-### Add or Update `slug` in Dify
+### Add or Update Slug Metadata in Dify
 
 In Dify's Knowledge UI, open each document and edit its metadata. Add a custom
 metadata item:
@@ -77,13 +83,14 @@ value: guides/quickstart.md
 
 If you upload or sync documents programmatically, include the same metadata on
 the document. Mirage reads Dify's `doc_metadata` field and looks for an item
-whose `name` is `slug`.
+whose `name` matches `slug_metadata_name`.
 
 ### Enable Built-in Fields for Name-Based Documents
 
-If a document does not have `slug`, Mirage falls back to the Dify document name
-for its file path. Scoped `search` can still target those name-based documents,
-but Dify must expose the `document_name` built-in field for metadata filtering.
+If a document does not have the configured slug metadata field, Mirage falls
+back to the Dify document name for its file path. Scoped `search` can still
+target those name-based documents, but Dify must expose the `document_name`
+built-in field for metadata filtering.
 
 In the Dify knowledge dataset settings:
 
@@ -96,7 +103,7 @@ work because Mirage resolves files through the document list and segment APIs.
 Scoped `search` against name-based paths may return no records because Dify
 cannot filter retrieval by `document_name`.
 
-For the most predictable behavior, add `slug` to every document and use
-slug-based paths.
+For the most predictable behavior, add the configured slug metadata field to
+every document and use slug-based paths.
 
 For Python configuration, see the [Python Dify Setup](/python/setup/dify) guide.

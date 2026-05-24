@@ -22,6 +22,7 @@ config = DifyConfig(
     api_key=os.environ["DIFY_API_KEY"],
     base_url=os.environ.get("DIFY_BASE_URL", "https://api.dify.ai/v1"),
     dataset_id=os.environ["DIFY_DATASET_ID"],
+    slug_metadata_name=os.environ.get("DIFY_SLUG_METADATA_NAME", "slug"),
 )
 resource = DifyResource(config=config)
 ws = Workspace({"/knowledge/": resource}, mode=MountMode.READ)
@@ -31,8 +32,9 @@ The resource is read-only and does not support snapshots.
 
 ## Filesystem Layout
 
-Dify documents are mapped to paths using the document's `slug` metadata. If a
-document has no `slug` metadata, Mirage falls back to the Dify document name.
+Dify documents are mapped to paths using the configured slug metadata field.
+The default metadata field name is `slug`. If a document has no configured slug
+metadata, Mirage falls back to the Dify document name.
 
 ```text
 /knowledge/
@@ -51,24 +53,42 @@ Example mapping:
 | `Quickstart` | `slug=guides/quickstart.md` | `/knowledge/guides/quickstart.md` |
 | `README.md` | no slug | `/knowledge/README.md` |
 
-### Creating `slug` Metadata in Dify
+### Creating Slug Metadata in Dify
 
-In the Dify Knowledge UI, open a document and add a metadata item named exactly
-`slug`.
+In the Dify Knowledge UI, open a document and add a metadata item whose name
+matches `slug_metadata_name`. The default name is `slug`.
 
 ```text
 name: slug
 value: guides/quickstart.md
 ```
 
+For a custom Dify metadata name:
+
+```python
+config = DifyConfig(
+    api_key=os.environ["DIFY_API_KEY"],
+    base_url=os.environ.get("DIFY_BASE_URL", "https://api.dify.ai/v1"),
+    dataset_id=os.environ["DIFY_DATASET_ID"],
+    slug_metadata_name="path",
+)
+```
+
+Then use:
+
+```text
+name: path
+value: guides/quickstart.md
+```
+
 Mirage reads `doc_metadata` from Dify and uses this value as the document's
 virtual path below the mount prefix.
 
-Use these rules for `slug` values:
+Use these rules for slug metadata values:
 
 - Use `/` to create folders.
 - Do not use empty segments, `.`, or `..`.
-- Keep each `slug` unique across the dataset.
+- Keep each slug metadata value unique across the dataset.
 - Do not use a path that is also needed as a folder. For example, `guides` and `guides/quickstart.md` cannot both be document paths.
 
 Only visible documents are included:
@@ -113,9 +133,10 @@ Supported methods:
 
 `top-k` is capped at `100`. `threshold` must be between `0` and `1`.
 
-Scoped search uses Dify metadata filtering. Documents with slug metadata are
-filtered by `slug`; name-based documents are filtered by `document_name`, which
-requires Dify Built-in Fields to be enabled in dataset metadata.
+Scoped search uses Dify metadata filtering. Documents with the configured slug
+metadata field are filtered by that field; name-based documents are filtered by
+`document_name`, which requires Dify Built-in Fields to be enabled in dataset
+metadata.
 
 ### Scoped Search Requirements
 
@@ -123,19 +144,19 @@ Mirage converts a scoped search path into Dify metadata filters:
 
 | Mirage target | Dify metadata filter |
 | ------------- | -------------------- |
-| Document with `slug` metadata | `slug in [...]` |
-| Document without `slug` metadata | `document_name in [...]` |
-| Folder or glob | `slug` / `document_name` filters for all matched files |
+| Document with configured slug metadata | `<slug_metadata_name> in [...]` |
+| Document without configured slug metadata | `document_name in [...]` |
+| Folder or glob | `<slug_metadata_name>` / `document_name` filters for all matched files |
 
 To make scoped search reliable:
 
-1. Add `slug` metadata to every document.
+1. Add the configured slug metadata field to every document.
 1. Enable Dify **Built-in Fields** in the dataset metadata settings.
 1. Ensure `document_name` is available if you rely on name-based paths.
 
-If Built-in Fields are disabled, scoped search against documents without `slug`
-may return empty results even though `cat`, `grep`, and `find` can still see the
-same file.
+If Built-in Fields are disabled, scoped search against documents without the
+configured slug metadata field may return empty results even though `cat`,
+`grep`, and `find` can still see the same file.
 
 ## Cache
 
@@ -163,6 +184,7 @@ config = DifyConfig(
     api_key=os.environ["DIFY_API_KEY"],
     base_url=os.environ.get("DIFY_BASE_URL", "https://api.dify.ai/v1"),
     dataset_id=os.environ["DIFY_DATASET_ID"],
+    slug_metadata_name=os.environ.get("DIFY_SLUG_METADATA_NAME", "slug"),
 )
 resource = DifyResource(config=config)
 

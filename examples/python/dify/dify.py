@@ -22,6 +22,7 @@ def build_resource() -> DifyResource:
         api_key=require_env("DIFY_API_KEY"),
         base_url=os.environ.get("DIFY_BASE_URL", "https://api.dify.ai/v1"),
         dataset_id=require_env("DIFY_DATASET_ID"),
+        slug_metadata_name=os.environ.get("DIFY_SLUG_METADATA_NAME", "slug"),
     )
     return DifyResource(config=config)
 

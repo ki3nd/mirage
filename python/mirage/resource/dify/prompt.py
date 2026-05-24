@@ -12,6 +12,6 @@ Use grep for exact pattern or regex matching; use search when meaning matters.
 Search can target multiple files, folders, or globs. Results are matching
 segment contents joined by newlines, ranked by Dify relevance.
 
-Scoped search requires documents with slug metadata or Dify Built-in Fields
-enabled for name-based documents. Otherwise, scoped searches against name-based
-paths may return empty results."""
+Scoped search requires documents with the configured slug metadata field
+(default: slug) or Dify Built-in Fields enabled for name-based documents.
+Otherwise, scoped searches against name-based paths may return empty results."""
