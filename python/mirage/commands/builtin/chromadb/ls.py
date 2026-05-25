@@ -4,6 +4,7 @@ from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.generic.ls import ls as generic_ls
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
+from mirage.core.chromadb.glob import resolve_glob
 from mirage.core.chromadb.readdir import readdir
 from mirage.core.chromadb.stat import stat, stat_light
 from mirage.io.types import ByteSource, IOResult
@@ -47,6 +48,7 @@ async def ls(
     index = _extra.get("index")
     cwd = _extra.get("cwd")
     paths = _default_paths(paths, cwd if isinstance(cwd, PathSpec) else None)
+    paths = await resolve_glob(accessor, paths, index)
     sort_by = LsSortBy.TIME if t else LsSortBy.SIZE if S else LsSortBy.NAME
     stat_fn = partial(stat if (args_l or S) else stat_light,
                       accessor,

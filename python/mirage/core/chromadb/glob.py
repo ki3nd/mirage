@@ -1,5 +1,6 @@
 import fnmatch
 import logging
+import posixpath
 
 from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.constants import SCOPE_ERROR
@@ -15,26 +16,27 @@ async def resolve_glob(
     index: IndexCacheStore,
 ) -> list[PathSpec]:
     result: list[PathSpec] = []
-    for path in paths:
-        if isinstance(path, str):
-            result.append(PathSpec(original=path, directory=path))
+    for p in paths:
+        if isinstance(p, str):
+            result.append(PathSpec(original=p, directory=posixpath.dirname(p)))
             continue
-        if path.resolved:
-            result.append(path)
-            continue
-        if not path.pattern:
-            result.append(path)
-            continue
-        entries = await readdir(accessor, path.dir, index)
-        matched = [
-            PathSpec(original=entry,
-                     directory=path.directory,
-                     prefix=path.prefix) for entry in entries
-            if fnmatch.fnmatch(entry.rsplit("/", 1)[-1], path.pattern)
-        ]
-        if len(matched) > SCOPE_ERROR:
-            logger.warning("%s: %d matches exceeds limit (%d), truncating",
-                           path.directory, len(matched), SCOPE_ERROR)
-            matched = matched[:SCOPE_ERROR]
-        result.extend(matched)
+        if p.resolved:
+            result.append(p)
+        elif p.pattern:
+            entries = await readdir(accessor, p.dir, index)
+            matched = [
+                PathSpec.from_str_path(e, p.prefix) for e in entries
+                if fnmatch.fnmatch(e.rsplit("/", 1)[-1], p.pattern)
+            ]
+            if len(matched) > SCOPE_ERROR:
+                logger.warning(
+                    "%s: %d matches exceeds limit (%d), truncating",
+                    p.directory,
+                    len(matched),
+                    SCOPE_ERROR,
+                )
+                matched = matched[:SCOPE_ERROR]
+            result.extend(matched)
+        else:
+            result.append(p)
     return result

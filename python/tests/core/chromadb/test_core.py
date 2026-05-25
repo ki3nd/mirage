@@ -313,7 +313,7 @@ async def test_resolve_glob_expands_basename_patterns(
 
     assert result == [
         PathSpec(original="/docs/guides/quickstart.md",
-                 directory="/docs/guides",
+                 directory="/docs/guides/",
                  prefix="/docs")
     ]
 
