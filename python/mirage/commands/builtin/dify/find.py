@@ -6,6 +6,7 @@ from mirage.commands.builtin.generic.find import find as generic_find
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.dify.find import find as find_core
+from mirage.core.dify.glob import resolve_glob
 from mirage.core.dify.stat import stat as stat_core
 from mirage.core.dify.stat import stat_light
 from mirage.io.types import ByteSource, IOResult
@@ -66,7 +67,9 @@ async def find(
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     paths = _default_paths(paths, cwd)
+    paths = await resolve_glob(accessor, paths, index)
     search_path = paths[0]
+    
     stat_fn = (partial(stat_core, accessor, index=index)
                if mtime is not None else partial(stat_light,
                                                  accessor,

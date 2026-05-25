@@ -4,6 +4,7 @@ from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.generic.ls import ls as generic_ls
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
+from mirage.core.dify.glob import resolve_glob
 from mirage.core.dify.readdir import readdir
 from mirage.core.dify.stat import stat
 from mirage.io.types import ByteSource, IOResult
@@ -47,6 +48,7 @@ async def ls(
     index = _extra.get("index")
     cwd = _extra.get("cwd")
     paths = _default_paths(paths, cwd if isinstance(cwd, PathSpec) else None)
+    paths = await resolve_glob(accessor, paths, index)
     sort_by = LsSortBy.TIME if t else LsSortBy.SIZE if S else LsSortBy.NAME
     return await generic_ls(
         paths,
