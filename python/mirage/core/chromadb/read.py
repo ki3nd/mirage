@@ -1,4 +1,5 @@
 import asyncio
+import errno
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -17,7 +18,7 @@ async def read_bytes(accessor, path: PathSpec,
                      index: IndexCacheStore) -> bytes:
     resolved = await resolve_path(accessor, path, index)
     if resolved.is_dir:
-        raise IsADirectoryError(path.original)
+        raise IsADirectoryError(errno.EISDIR, "Is a directory", path.original)
     chunks = await fetch_chunks(accessor, resolved.entry.extra["raw_slugs"])
     return chunks_to_bytes(chunks)
 
@@ -26,7 +27,7 @@ async def read_stream(accessor, path: PathSpec,
                       index: IndexCacheStore) -> AsyncIterator[bytes]:
     resolved = await resolve_path(accessor, path, index)
     if resolved.is_dir:
-        raise IsADirectoryError(path.original)
+        raise IsADirectoryError(errno.EISDIR, "Is a directory", path.original)
     chunks = await fetch_chunks(accessor, resolved.entry.extra["raw_slugs"])
     for i, chunk in enumerate(chunks):
         if i:
