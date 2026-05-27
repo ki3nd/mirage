@@ -40,8 +40,17 @@ def test_workspace_mount_registers_dify_commands_and_ops():
     workspace = Workspace({"/knowledge": resource()}, mode=MountMode.READ)
     mount = workspace.mount("/knowledge/")
 
+    assert "awk" in mount.commands()
     assert "ls" in mount.commands()
     assert "cat" in mount.commands()
+    assert "cut" in mount.commands()
+    assert "rg" in mount.commands()
+    assert "sed" in mount.commands()
+    assert "sort" in mount.commands()
+    assert "stat" in mount.commands()
+    assert "tree" in mount.commands()
+    assert "uniq" in mount.commands()
+    assert "du" not in mount.commands()
     assert "read" in mount.registered_ops()
     assert "stat" in mount.registered_ops()
 

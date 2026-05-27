@@ -69,11 +69,9 @@ async def find(
     paths = _default_paths(paths, cwd)
     paths = await resolve_glob(accessor, paths, index)
     search_path = paths[0]
-    
-    stat_fn = (partial(stat_core, accessor, index=index)
-               if mtime is not None else partial(stat_light,
-                                                 accessor,
-                                                 index=index))
+
+    stat_fn = (partial(stat_core, accessor, index=index) if mtime is not None
+               else partial(stat_light, accessor, index=index))
     stdout, io = await generic_find(paths,
                                     texts,
                                     find_core=partial(find_core,
