@@ -57,7 +57,8 @@ async def test_sort_and_uniq_process_document(monkeypatch, dify_accessor,
     monkeypatch.setattr(read, "get_document_segments", get_segments)
     monkeypatch.setattr(read, "iter_segment_pages", iter_pages)
 
-    sorted_stdout, _ = await sort(dify_accessor, [guide_path], index=dify_index)
+    sorted_stdout, _ = await sort(dify_accessor, [guide_path],
+                                  index=dify_index)
     assert await materialize(sorted_stdout) == b"alpha 1\nalpha 1\nbeta 2\n"
 
     uniq_stdout, _ = await uniq(dify_accessor, [guide_path], index=dify_index)

@@ -27,8 +27,8 @@ async def get_detail(config, document_id):
 
 
 @pytest.mark.asyncio
-async def test_stat_prints_dify_metadata(monkeypatch, dify_accessor, dify_index,
-                                         guide_path):
+async def test_stat_prints_dify_metadata(monkeypatch, dify_accessor,
+                                         dify_index, guide_path):
     monkeypatch.setattr(tree, "list_all_documents", list_documents)
     monkeypatch.setattr(stat_core, "get_document_detail", get_detail)
 

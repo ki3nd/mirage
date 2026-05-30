@@ -1,3 +1,5 @@
+from functools import partial
+
 from mirage.commands.builtin.generic.grep import grep as generic_grep
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
@@ -39,22 +41,6 @@ async def grep(
     index = _extra.get("index")
     paths = await resolve_glob(accessor, paths, index)
 
-    async def _readdir(bound_accessor, path: PathSpec,
-                       _index=None) -> list[str]:
-        return await readdir(bound_accessor, path, index)
-
-    async def _stat(bound_accessor, path: PathSpec, _index=None):
-        return await stat(bound_accessor, path, index)
-
-    async def _read_bytes(bound_accessor, path: PathSpec,
-                          _index=None) -> bytes:
-        return await read_bytes(bound_accessor, path, index)
-
-    async def _read_stream(bound_accessor, path: PathSpec, _index=None):
-        async for chunk in read_stream(bound_accessor, path, index):
-            yield chunk
-
-    pattern: str
     if e is not None:
         pattern = e
     elif texts:
@@ -65,10 +51,10 @@ async def grep(
     return await generic_grep(
         paths,
         pattern=pattern,
-        readdir=_readdir,
-        stat=_stat,
-        read_bytes=_read_bytes,
-        read_stream=_read_stream,
+        readdir=readdir,
+        stat=stat,
+        read_bytes=read_bytes,
+        read_stream=partial(read_stream, index=index),
         accessor=accessor,
         ignore_case=i or args_i,
         invert=v,

@@ -133,6 +133,6 @@ That confirms the existing suite is green, but it does not contradict the findin
 The core Dify pieces (`tree`, `read`, `stat`, HTTP client) look mostly reasonable. The main problems are in the command layer:
 
 1. declared shell semantics are broader than the actual implementation,
-2. default-path handling around mount prefixes is wrong in `ls` and `find`,
-3. exception handling in `ls` is too broad,
-4. tests do not cover the problematic command behaviors.
+1. default-path handling around mount prefixes is wrong in `ls` and `find`,
+1. exception handling in `ls` is too broad,
+1. tests do not cover the problematic command behaviors.

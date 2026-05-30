@@ -6,42 +6,11 @@ from mirage.commands.builtin.generic.rg import rg as generic_rg
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.dify.glob import resolve_glob
-from mirage.core.dify.read import read_stream
+from mirage.core.dify.read import read_bytes, read_stream
 from mirage.core.dify.readdir import readdir
 from mirage.core.dify.stat import stat_light
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
-
-
-async def bound_readdir(accessor,
-                        path: PathSpec,
-                        index=None,
-                        bound_index=None) -> list[str]:
-    effective_index = bound_index if bound_index is not None else index
-    return await readdir(accessor, path, effective_index)
-
-
-async def bound_stat(accessor, path: PathSpec, index=None, bound_index=None):
-    effective_index = bound_index if bound_index is not None else index
-    return await stat_light(accessor, path, effective_index)
-
-
-async def bound_read_bytes(accessor,
-                           path: PathSpec,
-                           index=None,
-                           bound_index=None) -> bytes:
-    effective_index = bound_index if bound_index is not None else index
-    return b"".join(
-        [chunk async for chunk in read_stream(accessor, path, effective_index)])
-
-
-async def bound_read_stream(accessor,
-                            path: PathSpec,
-                            index=None,
-                            bound_index=None):
-    effective_index = bound_index if bound_index is not None else index
-    async for chunk in read_stream(accessor, path, effective_index):
-        yield chunk
 
 
 @command("rg", resource="dify", spec=SPECS["rg"])
@@ -65,7 +34,6 @@ async def rg(
     hidden: bool = False,
     type: str | None = None,
     glob: str | None = None,
-    filetype_fns: dict | None = None,
     index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
@@ -73,10 +41,6 @@ async def rg(
         raise ValueError("rg: usage: rg [flags] pattern [path]")
     if paths:
         paths = await resolve_glob(accessor, paths, index)
-    readdir_fn = partial(bound_readdir, bound_index=index)
-    stat_fn = partial(bound_stat, bound_index=index)
-    read_bytes_fn = partial(bound_read_bytes, bound_index=index)
-    read_stream_fn = partial(bound_read_stream, bound_index=index)
     context_after = int(A) if A is not None else 0
     context_before = int(B) if B is not None else 0
     if C is not None:
@@ -84,12 +48,11 @@ async def rg(
     return await generic_rg(
         paths,
         pattern=texts[0],
-        readdir=readdir_fn,
-        stat=stat_fn,
-        read_bytes=read_bytes_fn,
-        read_stream=read_stream_fn,
+        readdir=readdir,
+        stat=stat_light,
+        read_bytes=read_bytes,
+        read_stream=partial(read_stream, index=index),
         accessor=accessor,
-        filetype_fns=filetype_fns,
         stdin=stdin,
         ignore_case=i,
         invert=v,

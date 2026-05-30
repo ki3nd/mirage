@@ -41,5 +41,6 @@ async def wc(
                       label=path.original))
     if len(paths) > 1:
         output.append(
-            format_wc(totals, args_l=args_l, w=w, c=c, m=m, L=L, label="total"))
+            format_wc(totals, args_l=args_l, w=w, c=c, m=m, L=L,
+                      label="total"))
     return "\n".join(output).encode(), IOResult(reads=reads, cache=list(reads))

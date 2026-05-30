@@ -11,7 +11,8 @@ from mirage.io.types import ByteSource, IOResult
 from mirage.types import LsSortBy, PathSpec
 
 
-def _default_paths(paths: list[PathSpec], cwd: PathSpec | None) -> list[PathSpec]:
+def _default_paths(paths: list[PathSpec],
+                   cwd: PathSpec | None) -> list[PathSpec]:
     if paths:
         return paths
     if cwd is not None:
@@ -42,7 +43,6 @@ async def ls(
     R: bool = False,
     d: bool = False,
     F: bool = False,
-    filetype_fns: dict | None = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     index = _extra.get("index")
@@ -53,7 +53,7 @@ async def ls(
     return await generic_ls(
         paths,
         readdir=partial(_readdir, accessor),
-        stat=partial(stat, accessor, index=index),
+        stat=partial(stat, accessor),
         long=args_l,
         one_per_line=args_1,
         all_files=a or A,
@@ -63,7 +63,5 @@ async def ls(
         recursive=R,
         list_dir=d,
         classify=F,
-        accessor=accessor,
-        filetype_fns=filetype_fns,
         index=index,
     )

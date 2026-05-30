@@ -20,7 +20,8 @@ def _normalize_path(path: PathSpec) -> PathSpec:
     return dataclasses.replace(path, prefix=prefix)
 
 
-def _default_paths(paths: list[PathSpec], cwd: PathSpec | None) -> list[PathSpec]:
+def _default_paths(paths: list[PathSpec],
+                   cwd: PathSpec | None) -> list[PathSpec]:
     if paths:
         return [_normalize_path(path) for path in paths]
     if cwd is not None:

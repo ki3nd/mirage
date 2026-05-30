@@ -1,5 +1,3 @@
-from functools import partial
-
 from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.generic.stat import stat as generic_stat
 from mirage.commands.registry import command
@@ -22,7 +20,8 @@ async def stat(
 ) -> tuple[ByteSource | None, IOResult]:
     paths = await resolve_glob(accessor, paths, index)
     return await generic_stat(paths,
-                              stat_fn=partial(stat_core, index=index),
+                              stat_fn=stat_core,
                               accessor=accessor,
+                              index=index,
                               c=c,
                               f=f)
