@@ -15,7 +15,7 @@
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt
 
 
 class FindType(str, Enum):
@@ -72,6 +72,17 @@ class ConsistencyPolicy(str, Enum):
     ALWAYS = "always"
 
 
+class OnExceed(str, Enum):
+    ERROR = "error"
+    TRUNCATE = "truncate"
+
+
+class CommandSafeguard(BaseModel):
+    max_bytes: NonNegativeInt | None = None
+    max_lines: NonNegativeInt | None = None
+    on_exceed: OnExceed = OnExceed.TRUNCATE
+
+
 class VFSWriteOp(str, Enum):
     WRITE = "write"
     UNLINK = "unlink"
@@ -112,6 +123,12 @@ class ResourceName(str, Enum):
     EMAIL = "email"
     PAPERCLIP = "paperclip"
     DIFY = "dify"
+    DATABRICKS_VOLUME = "databricks_volume"
+    HF_BUCKETS = "hf_buckets"
+    HF_DATASETS = "hf_datasets"
+    HF_MODELS = "hf_models"
+    HF_SPACES = "hf_spaces"
+    NEXTCLOUD = "nextcloud"
 
 
 @dataclass(frozen=True)
@@ -272,8 +289,6 @@ class SessionKey(StrEnum):
 
 class ResourceStateKey(StrEnum):
     TYPE = "type"
-    NEEDS_OVERRIDE = "needs_override"
-    REDACTED_FIELDS = "redacted_fields"
     CONFIG = "config"
     FILES = "files"
     DIRS = "dirs"

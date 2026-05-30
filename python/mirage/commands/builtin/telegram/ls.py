@@ -114,6 +114,7 @@ async def ls(
     R: bool = False,
     d: bool = False,
     F: bool = False,
+    index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     all_files = a or A
@@ -127,7 +128,7 @@ async def ls(
         paths = [cwd] if isinstance(cwd, PathSpec) else [
             PathSpec(original=cwd, directory=cwd, resolved=False)
         ]
-    paths = await resolve_glob(accessor, paths)
+    paths = await resolve_glob(accessor, paths, index)
     for p in paths:
         try:
             entries = await _ls_async(
@@ -140,7 +141,7 @@ async def ls(
                 recursive=R,
                 list_dir=d,
                 warnings=warnings,
-                index=_extra.get("index"),
+                index=index,
             )
         except (FileNotFoundError, ValueError) as exc:
             warnings.append(f"ls: cannot access '{p.original}': {exc}")

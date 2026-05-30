@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 
 from mirage.accessor.mongodb import MongoDBAccessor
 from mirage.cache.index import IndexCacheStore
+from mirage.commands.builtin.generic.cat import cat as generic_cat
 from mirage.commands.builtin.mongodb._provision import file_read_provision
 from mirage.commands.builtin.utils.stream import _resolve_source
 from mirage.commands.registry import command
@@ -25,7 +26,6 @@ from mirage.core.mongodb.read import read as mongodb_read
 from mirage.core.mongodb.scope import detect_scope
 from mirage.core.mongodb.stream import read_stream
 from mirage.core.mongodb.types import ScopeLevel
-from mirage.io.async_line_iterator import AsyncLineIterator
 from mirage.io.types import ByteSource, IOResult
 from mirage.provision.types import ProvisionResult
 from mirage.types import PathSpec
@@ -43,18 +43,6 @@ async def cat_provision(
                           for p in paths))
 
 
-async def _number_lines_stream(
-        source: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
-    num = 1
-    async for line in AsyncLineIterator(source):
-        yield f"     {num}\t".encode() + line + b"\n"
-        num += 1
-
-
-async def _bytes_to_stream(data: bytes) -> AsyncIterator[bytes]:
-    yield data
-
-
 @command("cat", resource="mongodb", spec=SPECS["cat"], provision=cat_provision)
 async def cat(
     accessor: MongoDBAccessor,
@@ -66,22 +54,18 @@ async def cat(
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     if paths:
-        paths = await resolve_glob(accessor, paths)
+        paths = await resolve_glob(accessor, paths, index)
         p = paths[0]
         scope = detect_scope(p)
         if scope.level == ScopeLevel.DOCUMENTS:
             source = read_stream(accessor, p, index)
             io = IOResult(reads={p.strip_prefix: source},
                           cache=[p.strip_prefix])
-            if n:
-                return _number_lines_stream(source), io
-            return source, io
+            return (generic_cat(source, number_lines=True)
+                    if n else source), io
         data = await mongodb_read(accessor, p, index)
         io = IOResult(reads={p.strip_prefix: data}, cache=[p.strip_prefix])
-        if n:
-            return _number_lines_stream(_bytes_to_stream(data)), io
-        return data, io
+        return (generic_cat(data, number_lines=True) if n else data), io
     source = _resolve_source(stdin, "cat: missing operand")
-    if n:
-        return _number_lines_stream(source), IOResult()
-    return source, IOResult()
+    return (generic_cat(source, number_lines=True)
+            if n else source), IOResult()

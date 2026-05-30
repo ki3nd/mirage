@@ -18,7 +18,7 @@ def _make_fs_backend(tree: dict[str, FileStat]):
     type == FileType.DIRECTORY. readdir lists direct children of the path.
     """
 
-    async def stat(p: PathSpec) -> FileStat:
+    async def stat(p: PathSpec, index=None) -> FileStat:
         if p.original not in tree:
             raise FileNotFoundError(p.original)
         return tree[p.original]
@@ -263,52 +263,67 @@ async def test_ls_missing_path_returns_warning_and_exit_1():
 
 
 @pytest.mark.asyncio
-async def test_ls_filetype_fn_overrides_default_long_format():
-    tree = {
-        "/dir": _dir("dir"),
-        "/dir/data.parquet": _file("data.parquet", 999),
-    }
+async def test_walk_single_file_lists_itself():
+    tree = {"/dir/a.parquet": _file("a.parquet", 5)}
     readdir, stat = _make_fs_backend(tree)
-
-    calls: list = []
-
-    async def parquet_handler(accessor, paths, **kwargs):
-        calls.append((accessor, paths, kwargs))
-        return b"PARQUET-META\tdata.parquet", None
-
-    output, _ = await ls(
-        [_spec("/dir")],
-        readdir=readdir,
-        stat=stat,
-        long=True,
-        accessor="sentinel-accessor",
-        filetype_fns={".parquet": parquet_handler},
-    )
-    decoded = output.decode()
-    assert "PARQUET-META" in decoded
-    assert calls and calls[0][0] == "sentinel-accessor"
-    assert calls[0][2].get("args_l") is True
+    entries, warnings = await walk(_spec("/dir/a.parquet"),
+                                   readdir=readdir,
+                                   stat=stat)
+    assert [e.name for e in entries] == ["a.parquet"]
+    assert warnings == []
 
 
 @pytest.mark.asyncio
-async def test_ls_filetype_fn_failure_falls_back_to_default():
+async def test_walk_empty_readdir_falls_back_to_file():
+    """Object stores (e.g. s3) return [] for a file key instead of raising."""
+    fstat = _file("a.parquet", 5)
+
+    async def stat(p, index=None):
+        if p.original == "/data/a.parquet":
+            return fstat
+        raise FileNotFoundError(p.original)
+
+    async def readdir(p, _index=None):
+        return []
+
+    entries, warnings = await walk(_spec("/data/a.parquet"),
+                                   readdir=readdir,
+                                   stat=stat)
+    assert [e.name for e in entries] == ["a.parquet"]
+    assert warnings == []
+
+
+@pytest.mark.asyncio
+async def test_walk_empty_dir_stays_empty():
+    tree = {"/empty": _dir("empty")}
+    readdir, stat = _make_fs_backend(tree)
+    entries, warnings = await walk(_spec("/empty"), readdir=readdir, stat=stat)
+    assert entries == []
+    assert warnings == []
+
+
+@pytest.mark.asyncio
+async def test_ls_file_argument_lists_the_file():
+    tree = {"/dir/a.json": _file("a.json", 5)}
+    readdir, stat = _make_fs_backend(tree)
+    output, io = await ls([_spec("/dir/a.json")], readdir=readdir, stat=stat)
+    assert output == b"a.json"
+    assert io.exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_ls_l_no_filetype_enrichment():
     tree = {
         "/dir": _dir("dir"),
         "/dir/data.parquet": _file("data.parquet", 999),
     }
     readdir, stat = _make_fs_backend(tree)
 
-    async def broken_handler(*_args, **_kwargs):
-        raise RuntimeError("boom")
-
     output, _ = await ls(
         [_spec("/dir")],
         readdir=readdir,
         stat=stat,
         long=True,
-        accessor="x",
-        filetype_fns={".parquet": broken_handler},
     )
     decoded = output.decode()
     assert "data.parquet" in decoded
-    assert "PARQUET-META" not in decoded
