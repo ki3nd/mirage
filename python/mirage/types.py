@@ -121,7 +121,6 @@ class ResourceName(str, Enum):
     GITHUB_CI = "github_ci"
     GCS = "gcs"
     EMAIL = "email"
-    PAPERCLIP = "paperclip"
     DIFY = "dify"
     DATABRICKS_VOLUME = "databricks_volume"
     HF_BUCKETS = "hf_buckets"
