@@ -128,7 +128,8 @@ def _retrieve_records(query: str) -> list[dict]:
             ),
             build_record(
                 "doc-auth",
-                "If you exceed the limit you receive HTTP 429 and must back off.",
+                ("If you exceed the limit you receive HTTP 429 and must "
+                 "back off."),
                 0.88,
             ),
         ]
