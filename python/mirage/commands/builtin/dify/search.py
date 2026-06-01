@@ -39,6 +39,7 @@ async def search(
     cwd = _extra.get("cwd")
     target_paths = default_paths(paths,
                                  cwd if isinstance(cwd, PathSpec) else None)
+    mount_prefix = target_paths[0].prefix if target_paths else ""
     if any(is_mount_root(path) for path in target_paths):
         resolved_paths: list[PathSpec] = []
     else:
@@ -49,5 +50,6 @@ async def search(
                                                index,
                                                method=method,
                                                top_k=int(top_k),
-                                               threshold=float(threshold))
+                                               threshold=float(threshold),
+                                               mount_prefix=mount_prefix)
     return output, IOResult()

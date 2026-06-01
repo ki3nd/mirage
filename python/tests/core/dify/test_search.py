@@ -73,12 +73,28 @@ async def test_search_segments_scopes_folder_to_all_documents(monkeypatch):
         return {
             "records": [{
                 "segment": {
-                    "content": "api segment"
-                }
+                    "content": "api segment",
+                    "document": {
+                        "name": "API",
+                        "doc_metadata": [{
+                            "name": "slug",
+                            "value": "guides/api"
+                        }],
+                    },
+                },
+                "score": 0.92,
             }, {
                 "segment": {
-                    "content": "auth segment"
-                }
+                    "content": "auth segment",
+                    "document": {
+                        "name": "Auth",
+                        "doc_metadata": [{
+                            "name": "slug",
+                            "value": "guides/auth"
+                        }],
+                    },
+                },
+                "score": 0.81,
             }]
         }
 
@@ -99,7 +115,10 @@ async def test_search_segments_scopes_folder_to_all_documents(monkeypatch):
         threshold=0.4,
     )
 
-    assert result == b"api segment\nauth segment"
+    assert result == (
+        b"/knowledge/guides/api:0.92\napi segment\n"
+        b"/knowledge/guides/auth:0.81\nauth segment"
+    )
     retrieval = bodies[0]["retrieval_model"]
     assert retrieval["search_method"] == "hybrid_search"
     assert retrieval["top_k"] == 2
@@ -205,15 +224,102 @@ async def test_search_segments_empty_paths_searches_whole_dataset(monkeypatch):
 
     async def dify_post(config, endpoint, body):
         bodies.append(body)
-        return {"records": [{"segment": {"content": "dataset match"}}]}
+        return {
+            "records": [{
+                "segment": {
+                    "content": "dataset match",
+                    "document": {
+                        "name": "README.md",
+                        "doc_metadata": None,
+                    },
+                },
+                "score": 0.77,
+            }]
+        }
 
     monkeypatch.setattr(search, "dify_post", dify_post)
 
-    result = await search.search_segments(accessor(), "anything", [],
-                                          RAMIndexCacheStore())
+    result = await search.search_segments(accessor(),
+                                          "anything", [],
+                                          RAMIndexCacheStore(),
+                                          mount_prefix="/knowledge/")
 
-    assert result == b"dataset match"
+    assert result == b"/knowledge/README.md:0.77\ndataset match"
     assert "metadata_filtering_conditions" not in bodies[0]["retrieval_model"]
+
+
+def test_records_to_bytes_formats_absolute_paths_and_scores():
+    from mirage.core.dify.search import records_to_bytes
+
+    result = records_to_bytes(
+        [{
+            "segment": {
+                "content": "api segment",
+                "document": {
+                    "name": "API",
+                    "doc_metadata": [{
+                        "name": "slug",
+                        "value": "guides/api"
+                    }],
+                },
+            },
+            "score": 0.92,
+        }, {
+            "segment": {
+                "content": "auth segment",
+                "document": {
+                    "name": "README.md",
+                    "doc_metadata": None,
+                },
+            },
+        }],
+        "slug",
+        "/knowledge/",
+    )
+
+    assert result == (
+        b"/knowledge/guides/api:0.92\napi segment\n"
+        b"/knowledge/README.md\nauth segment"
+    )
+
+
+def test_records_to_bytes_keeps_multiple_chunks_for_same_document():
+    from mirage.core.dify.search import records_to_bytes
+
+    result = records_to_bytes(
+        [{
+            "segment": {
+                "content": "first chunk",
+                "document": {
+                    "name": "refunds.md",
+                    "doc_metadata": [{
+                        "name": "slug",
+                        "value": "policies/refunds"
+                    }],
+                },
+            },
+            "score": 0.82,
+        }, {
+            "segment": {
+                "content": "second chunk",
+                "document": {
+                    "name": "refunds.md",
+                    "doc_metadata": [{
+                        "name": "slug",
+                        "value": "policies/refunds"
+                    }],
+                },
+            },
+            "score": 0.79,
+        }],
+        "slug",
+        "/knowledge/",
+    )
+
+    assert result == (
+        b"/knowledge/policies/refunds:0.82\nfirst chunk\n"
+        b"/knowledge/policies/refunds:0.79\nsecond chunk"
+    )
 
 
 @pytest.mark.asyncio

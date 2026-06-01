@@ -133,6 +133,17 @@ Supported methods:
 
 `top-k` is capped at `100`. `threshold` must be between `0` and `1`.
 
+Results are emitted one retrieval hit per block:
+
+```text
+/knowledge/policies/refunds:0.82
+Refunds are allowed within 30 days.
+```
+
+Mirage uses the configured slug metadata field to derive the path, and falls
+back to the Dify document name when that metadata is missing. Multiple hits
+from the same document remain separate records.
+
 Scoped search uses Dify metadata filtering. Documents with the configured slug
 metadata field are filtered by that field; name-based documents are filtered by
 `document_name`, which requires Dify Built-in Fields to be enabled in dataset

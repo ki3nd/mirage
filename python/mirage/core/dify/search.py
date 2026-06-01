@@ -1,8 +1,10 @@
 import logging
+from typing import Any
 
 from mirage.cache.index import IndexCacheStore, IndexEntry
 from mirage.core.dify._client import dify_post
 from mirage.core.dify.path import resolve_path
+from mirage.core.dify.tree import normalize_slug
 from mirage.core.dify.walk import walk
 from mirage.types import PathSpec
 
@@ -24,8 +26,11 @@ async def search_segments(
     method: str = "semantic",
     top_k: int = 10,
     threshold: float = 0.0,
+    mount_prefix: str = "",
 ) -> bytes:
     search_method = validate_args(query, method, top_k, threshold)
+    if not mount_prefix and paths:
+        mount_prefix = paths[0].prefix
     retrieval_model = {
         "search_method": search_method,
         "top_k": min(top_k, 100),
@@ -51,7 +56,9 @@ async def search_segments(
             "retrieval_model": retrieval_model
         },
     )
-    output = records_to_bytes(response.get("records") or [])
+    output = records_to_bytes(response.get("records") or [],
+                              accessor.config.slug_metadata_name,
+                              mount_prefix)
     if paths and has_name_based_target and output == b"":
         logger.debug(
             "Dify scoped search returned no records for name-based documents; "
@@ -132,17 +139,88 @@ async def target_entries(
     return targets
 
 
-def records_to_bytes(records: list[dict]) -> bytes:
-    contents = []
+def records_to_bytes(
+    records: list[dict[str, Any]],
+    slug_metadata_name: str,
+    mount_prefix: str,
+) -> bytes:
+    contents: list[str] = []
     for record in records:
         segment = record.get("segment")
         if not isinstance(segment, dict):
             continue
-        content = segment.get("content")
-        if content is None:
-            contents.append("")
-        elif isinstance(content, str):
-            contents.append(content)
-        else:
-            contents.append(str(content))
+        header = format_record_header(record, slug_metadata_name, mount_prefix)
+        if header is None:
+            continue
+        content = segment_content(segment)
+        contents.append(f"{header}\n{content}")
     return "\n".join(contents).encode()
+
+
+def format_record_header(
+    record: dict[str, Any],
+    slug_metadata_name: str,
+    mount_prefix: str,
+) -> str | None:
+    path = record_path(record, slug_metadata_name, mount_prefix)
+    if path is None:
+        return None
+    score = format_score(record.get("score"))
+    if score is None:
+        return path
+    return f"{path}:{score}"
+
+
+def record_path(
+    record: dict[str, Any],
+    slug_metadata_name: str,
+    mount_prefix: str,
+) -> str | None:
+    segment = record.get("segment")
+    if not isinstance(segment, dict):
+        return None
+    document = segment.get("document")
+    if not isinstance(document, dict):
+        return None
+    raw_path = document_path(document, slug_metadata_name)
+    if raw_path is None:
+        return None
+    normalized = normalize_slug(raw_path)
+    prefix = mount_prefix.rstrip("/")
+    if not prefix:
+        return normalized
+    return prefix + normalized
+
+
+def document_path(
+    document: dict[str, Any],
+    slug_metadata_name: str,
+) -> str | None:
+    metadata = document.get("doc_metadata")
+    if isinstance(metadata, list):
+        for item in metadata:
+            if (isinstance(item, dict)
+                    and item.get("name") == slug_metadata_name
+                    and item.get("value") is not None):
+                return str(item["value"])
+    if isinstance(metadata, dict) and metadata.get(slug_metadata_name) is not None:
+        return str(metadata[slug_metadata_name])
+    name = document.get("name")
+    if name is None:
+        return None
+    return str(name)
+
+
+def format_score(value: object) -> str | None:
+    if not isinstance(value, (int, float)):
+        return None
+    return f"{value:.2f}"
+
+
+def segment_content(segment: dict[str, Any]) -> str:
+    content = segment.get("content")
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    return str(content)

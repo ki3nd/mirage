@@ -39,7 +39,7 @@ async def test_search_command_resolves_globs_and_passes_multiple_documents(
     from mirage.commands.builtin.dify import search as command_search
     from mirage.core.dify import search, tree
 
-    calls: list[list[PathSpec]] = []
+    calls: list[tuple[list[PathSpec], dict]] = []
 
     async def list_documents(config):
         return [
@@ -48,7 +48,7 @@ async def test_search_command_resolves_globs_and_passes_multiple_documents(
         ]
 
     async def search_segments(accessor, query, paths, index, **kwargs):
-        calls.append(paths)
+        calls.append((paths, kwargs))
         return b"api\nauth"
 
     monkeypatch.setattr(tree, "list_all_documents", list_documents)
@@ -70,10 +70,11 @@ async def test_search_command_resolves_globs_and_passes_multiple_documents(
     assert await materialize(stdout) == b"api\nauth"
     assert io.reads == {}
     assert io.cache == []
-    assert [path.original for path in calls[0]] == [
+    assert [path.original for path in calls[0][0]] == [
         "/knowledge/guides/api.md",
         "/knowledge/guides/auth.md",
     ]
+    assert calls[0][1]["mount_prefix"] == "/knowledge/"
 
 
 @pytest.mark.asyncio
@@ -81,10 +82,10 @@ async def test_search_command_root_searches_whole_dataset(monkeypatch):
     from mirage.commands.builtin.dify import search as command_search
     from mirage.core.dify import search
 
-    calls: list[list[PathSpec]] = []
+    calls: list[tuple[list[PathSpec], dict]] = []
 
     async def search_segments(accessor, query, paths, index, **kwargs):
-        calls.append(paths)
+        calls.append((paths, kwargs))
         return b"dataset"
 
     monkeypatch.setattr(search, "search_segments", search_segments)
@@ -97,4 +98,9 @@ async def test_search_command_root_searches_whole_dataset(monkeypatch):
                                      index=RAMIndexCacheStore())
 
     assert await materialize(stdout) == b"dataset"
-    assert calls == [[]]
+    assert calls == [([], {
+        "method": "semantic",
+        "top_k": 10,
+        "threshold": 0.0,
+        "mount_prefix": "/knowledge/"
+    })]

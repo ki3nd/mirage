@@ -27,4 +27,7 @@ async def test_search_op_delegates_to_core(monkeypatch):
                              method="keyword")
 
     assert result == b"result"
-    assert calls == [("query", paths, {"method": "keyword"})]
+    assert calls == [("query", paths, {
+        "method": "keyword",
+        "mount_prefix": ""
+    })]
