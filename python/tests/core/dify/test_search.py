@@ -115,10 +115,8 @@ async def test_search_segments_scopes_folder_to_all_documents(monkeypatch):
         threshold=0.4,
     )
 
-    assert result == (
-        b"/knowledge/guides/api:0.92\napi segment\n"
-        b"/knowledge/guides/auth:0.81\nauth segment"
-    )
+    assert result == (b"/knowledge/guides/api:0.92\napi segment\n"
+                      b"/knowledge/guides/auth:0.81\nauth segment\n")
     retrieval = bodies[0]["retrieval_model"]
     assert retrieval["search_method"] == "hybrid_search"
     assert retrieval["top_k"] == 2
@@ -244,7 +242,7 @@ async def test_search_segments_empty_paths_searches_whole_dataset(monkeypatch):
                                           RAMIndexCacheStore(),
                                           mount_prefix="/knowledge/")
 
-    assert result == b"/knowledge/README.md:0.77\ndataset match"
+    assert result == b"/knowledge/README.md:0.77\ndataset match\n"
     assert "metadata_filtering_conditions" not in bodies[0]["retrieval_model"]
 
 
@@ -277,10 +275,8 @@ def test_records_to_bytes_formats_absolute_paths_and_scores():
         "/knowledge/",
     )
 
-    assert result == (
-        b"/knowledge/guides/api:0.92\napi segment\n"
-        b"/knowledge/README.md\nauth segment"
-    )
+    assert result == (b"/knowledge/guides/api:0.92\napi segment\n"
+                      b"/knowledge/README.md\nauth segment\n")
 
 
 def test_records_to_bytes_keeps_multiple_chunks_for_same_document():
@@ -291,7 +287,8 @@ def test_records_to_bytes_keeps_multiple_chunks_for_same_document():
             "segment": {
                 "content": "first chunk",
                 "document": {
-                    "name": "refunds.md",
+                    "name":
+                    "refunds.md",
                     "doc_metadata": [{
                         "name": "slug",
                         "value": "policies/refunds"
@@ -303,7 +300,8 @@ def test_records_to_bytes_keeps_multiple_chunks_for_same_document():
             "segment": {
                 "content": "second chunk",
                 "document": {
-                    "name": "refunds.md",
+                    "name":
+                    "refunds.md",
                     "doc_metadata": [{
                         "name": "slug",
                         "value": "policies/refunds"
@@ -316,10 +314,70 @@ def test_records_to_bytes_keeps_multiple_chunks_for_same_document():
         "/knowledge/",
     )
 
-    assert result == (
-        b"/knowledge/policies/refunds:0.82\nfirst chunk\n"
-        b"/knowledge/policies/refunds:0.79\nsecond chunk"
+    assert result == (b"/knowledge/policies/refunds:0.82\nfirst chunk\n"
+                      b"/knowledge/policies/refunds:0.79\nsecond chunk\n")
+
+
+def test_records_to_bytes_skips_records_with_invalid_slug():
+    from mirage.core.dify.search import records_to_bytes
+
+    result = records_to_bytes(
+        [{
+            "segment": {
+                "content": "bad chunk",
+                "document": {
+                    "name": "ok.md",
+                    "doc_metadata": [{
+                        "name": "slug",
+                        "value": ""
+                    }],
+                },
+            },
+            "score": 0.82,
+        }, {
+            "segment": {
+                "content": "good chunk",
+                "document": {
+                    "name":
+                    "refunds.md",
+                    "doc_metadata": [{
+                        "name": "slug",
+                        "value": "policies/refunds"
+                    }],
+                },
+            },
+            "score": 0.79,
+        }],
+        "slug",
+        "/knowledge/",
     )
+
+    assert result == b"/knowledge/policies/refunds:0.79\ngood chunk\n"
+
+
+def test_records_to_bytes_omits_score_for_non_numeric_values():
+    from mirage.core.dify.search import records_to_bytes
+
+    result = records_to_bytes(
+        [{
+            "segment": {
+                "content": "chunk",
+                "document": {
+                    "name":
+                    "refunds.md",
+                    "doc_metadata": [{
+                        "name": "slug",
+                        "value": "policies/refunds"
+                    }],
+                },
+            },
+            "score": True,
+        }],
+        "slug",
+        "/knowledge/",
+    )
+
+    assert result == b"/knowledge/policies/refunds\nchunk\n"
 
 
 @pytest.mark.asyncio

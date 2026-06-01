@@ -56,9 +56,9 @@ async def search_segments(
             "retrieval_model": retrieval_model
         },
     )
-    output = records_to_bytes(response.get("records") or [],
-                              accessor.config.slug_metadata_name,
-                              mount_prefix)
+    output = records_to_bytes(
+        response.get("records") or [], accessor.config.slug_metadata_name,
+        mount_prefix)
     if paths and has_name_based_target and output == b"":
         logger.debug(
             "Dify scoped search returned no records for name-based documents; "
@@ -154,7 +154,9 @@ def records_to_bytes(
             continue
         content = segment_content(segment)
         contents.append(f"{header}\n{content}")
-    return "\n".join(contents).encode()
+    if not contents:
+        return b""
+    return ("\n".join(contents) + "\n").encode()
 
 
 def format_record_header(
@@ -185,7 +187,12 @@ def record_path(
     raw_path = document_path(document, slug_metadata_name)
     if raw_path is None:
         return None
-    normalized = normalize_slug(raw_path)
+    try:
+        normalized = normalize_slug(raw_path)
+    except ValueError:
+        logger.debug("Skipping Dify record with invalid slug/name: %r",
+                     raw_path)
+        return None
     prefix = mount_prefix.rstrip("/")
     if not prefix:
         return normalized
@@ -203,7 +210,8 @@ def document_path(
                     and item.get("name") == slug_metadata_name
                     and item.get("value") is not None):
                 return str(item["value"])
-    if isinstance(metadata, dict) and metadata.get(slug_metadata_name) is not None:
+    if isinstance(metadata,
+                  dict) and metadata.get(slug_metadata_name) is not None:
         return str(metadata[slug_metadata_name])
     name = document.get("name")
     if name is None:
@@ -212,7 +220,7 @@ def document_path(
 
 
 def format_score(value: object) -> str | None:
-    if not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return f"{value:.2f}"
 

@@ -51,12 +51,17 @@ If you exceed the limit you receive HTTP 429 and must back off.
 === pipe_sort_uniq_wc ===
 3
 === search_throttle ===
+/knowledge/guides/auth:0.92
 Requests are rate limited to 100 calls per minute per token.
+/knowledge/guides/auth:0.88
 If you exceed the limit you receive HTTP 429 and must back off.
 === search_scoped_refund ===
+/knowledge/policies/refunds:0.91
 Refunds are available within 30 days of purchase.
+/knowledge/policies/refunds:0.84
 Approved refunds are processed within five business days.
 === search_hybrid_encrypted ===
+/knowledge/policies/privacy:0.89
 Customer data is stored encrypted at rest and in transit.
 === calls_ls ===
 list=1 detail=1 segments=0 retrieve=0

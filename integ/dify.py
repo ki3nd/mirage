@@ -95,38 +95,39 @@ def _document_detail(doc: tuple) -> dict:
     return detail
 
 
-def _retrieve_records(query: str) -> list[dict]:
-    def build_record(doc_id: str, content: str, score: float) -> dict:
-        doc = DOC_BY_ID[doc_id]
-        return {
-            "segment": {
-                "id": f"{doc_id}:{score:.2f}",
-                "document_id": doc_id,
-                "content": content,
-                "document": {
-                    "id": doc[0],
-                    "data_source_type": "upload_file",
-                    "name": doc[1],
-                    "doc_type": None,
-                    "doc_metadata": _document_summary(doc)["doc_metadata"],
-                },
+def _build_record(doc_id: str, content: str, score: float) -> dict:
+    doc = DOC_BY_ID[doc_id]
+    return {
+        "segment": {
+            "id": f"{doc_id}:{score:.2f}",
+            "document_id": doc_id,
+            "content": content,
+            "document": {
+                "id": doc[0],
+                "data_source_type": "upload_file",
+                "name": doc[1],
+                "doc_type": None,
+                "doc_metadata": _document_summary(doc)["doc_metadata"],
             },
-            "child_chunks": [],
-            "score": score,
-            "tsne_position": None,
-            "files": [],
-            "summary": None,
-        }
+        },
+        "child_chunks": [],
+        "score": score,
+        "tsne_position": None,
+        "files": [],
+        "summary": None,
+    }
 
+
+def _retrieve_records(query: str) -> list[dict]:
     lowered = query.lower()
     if "throttl" in lowered or "rate" in lowered or "429" in lowered:
         return [
-            build_record(
+            _build_record(
                 "doc-auth",
                 "Requests are rate limited to 100 calls per minute per token.",
                 0.92,
             ),
-            build_record(
+            _build_record(
                 "doc-auth",
                 ("If you exceed the limit you receive HTTP 429 and must "
                  "back off."),
@@ -135,12 +136,12 @@ def _retrieve_records(query: str) -> list[dict]:
         ]
     elif "refund" in lowered or "money" in lowered:
         return [
-            build_record(
+            _build_record(
                 "doc-refunds",
                 "Refunds are available within 30 days of purchase.",
                 0.91,
             ),
-            build_record(
+            _build_record(
                 "doc-refunds",
                 "Approved refunds are processed within five business days.",
                 0.84,
@@ -148,7 +149,7 @@ def _retrieve_records(query: str) -> list[dict]:
         ]
     elif "encrypt" in lowered or "privacy" in lowered:
         return [
-            build_record(
+            _build_record(
                 "doc-privacy",
                 "Customer data is stored encrypted at rest and in transit.",
                 0.89,
