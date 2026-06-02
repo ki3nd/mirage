@@ -18,9 +18,9 @@ import logging
 import sys
 import time
 from collections.abc import AsyncIterator
+from functools import partial
 from typing import Any
 
-from mirage.cache.file import io as cache_io
 from mirage.cache.file.config import CacheConfig, RedisCacheConfig
 from mirage.cache.file.ram import RAMFileCacheStore
 from mirage.cache.index import IndexConfig
@@ -39,39 +39,31 @@ from mirage.ops.os_patch import make_os_module
 from mirage.provision import ProvisionResult
 from mirage.resource.base import BaseResource
 from mirage.resource.ram import RAMResource
-from mirage.shell.barrier import BarrierPolicy, apply_barrier
 from mirage.shell.job_table import JobTable
 from mirage.shell.parse import find_syntax_error, parse
 from mirage.types import (DEFAULT_AGENT_ID, DEFAULT_SESSION_ID,
-                          ConsistencyPolicy, DriftPolicy, FileStat,
-                          FingerprintKey, MountMode, PathSpec, StateKey)
+                          ConsistencyPolicy, DriftPolicy, FileStat, MountMode,
+                          PathSpec, StateKey)
 from mirage.workspace.abort import MirageAbortError
+from mirage.workspace.dispatcher import Dispatcher
+from mirage.workspace.file_prompt import build_file_prompt
 from mirage.workspace.fuse import FuseManager
 from mirage.workspace.history import ExecutionHistory
 from mirage.workspace.mount import Mount, MountRegistry
 from mirage.workspace.native import native_exec
-from mirage.workspace.node import execute_node as _execute_node
-from mirage.workspace.node import provision_node
+from mirage.workspace.node import provision_node, run_command_tree
 from mirage.workspace.session import (Session, SessionManager,
-                                      assert_mount_allowed,
                                       reset_current_session,
                                       set_current_session)
 from mirage.workspace.snapshot import (ContentDriftError, apply_state_dict,
                                        build_mount_args, check_drift,
-                                       norm_mount_prefix, read_tar)
+                                       install_fingerprints, norm_mount_prefix,
+                                       read_tar, requires_resource_override)
 from mirage.workspace.snapshot import snapshot as _write_snapshot
 from mirage.workspace.snapshot import to_state_dict
 from mirage.workspace.types import ExecutionNode, ExecutionRecord
 
 logger = logging.getLogger(__name__)
-
-_DISPATCH_READ_OPS = frozenset({"read", "read_bytes"})
-_DISPATCH_WRITE_OPS = frozenset(
-    {"write", "write_bytes", "append", "unlink", "create", "truncate"})
-
-_HELP_HINT = (
-    "Tip: run `man` to list every available command grouped by resource, "
-    "`man <cmd>` for a single entry, and `<cmd> --help` for flag details.")
 
 
 class Workspace:
@@ -130,6 +122,7 @@ class Workspace:
         self._session_mgr = SessionManager(session_id)
         self._consistency = consistency
         self._registry.set_consistency(consistency)
+        self._dispatcher = Dispatcher(self._registry, self._cache, consistency)
 
         for prefix, value in resources.items():
             if isinstance(value, tuple) and len(value) >= 2:
@@ -266,18 +259,7 @@ class Workspace:
 
     @property
     def file_prompt(self) -> str:
-        parts: list[str] = [_HELP_HINT]
-        for m in self._registry.mounts():
-            prompt = m.resource.PROMPT
-            if not prompt:
-                continue
-            prefix = m.prefix.rstrip("/") or "/"
-            section = prompt.format(prefix=prefix)
-            if m.mode != MountMode.READ and m.resource.WRITE_PROMPT:
-                section += "\n" + m.resource.WRITE_PROMPT.replace(
-                    "{prefix}", prefix)
-            parts.append(section)
-        return "\n\n".join(parts)
+        return build_file_prompt(self._registry.mounts())
 
     # ── lifecycle ───────────────────────────────────────────────────────────
 
@@ -378,35 +360,43 @@ class Workspace:
                 disables drift checking and evicts snapshot cache for
                 fingerprinted paths.
         """
-        state = read_tar(source)
+        return cls.from_state(read_tar(source),
+                              resources=resources,
+                              drift_policy=drift_policy)
+
+    @classmethod
+    def from_state(
+            cls,
+            state: dict,
+            *,
+            resources: dict | None = None,
+            drift_policy: DriftPolicy = DriftPolicy.STRICT) -> "Workspace":
+        """Reconstruct a Workspace directly from a state dict (no tar).
+
+        The in-process inverse of ``to_state_dict``: build the mounts,
+        restore content/cache/history, then install drift fingerprints.
+        ``load`` is this plus a tar read; callers that already hold a
+        state dict (e.g. a version checkout) should use this and skip the
+        tar round-trip.
+
+        Args:
+            state: a state dict from ``to_state_dict`` or a version.
+            resources: {prefix: Resource} overrides for mounts saved
+                with redacted creds.
+            drift_policy: STRICT (default) raises on mismatch. OFF
+                disables drift checking and evicts snapshot cache for
+                fingerprinted paths.
+        """
         ws = cls._from_state(state, resources=resources)
-        fingerprint_entries = state.get(StateKey.FINGERPRINTS) or []
-        ws._drift_policy = drift_policy
-        if drift_policy == DriftPolicy.OFF:
-            if fingerprint_entries:
-                ws._cache.evict_paths(f[FingerprintKey.PATH]
-                                      for f in fingerprint_entries)
-        else:
-            for f in fingerprint_entries:
-                path = f[FingerprintKey.PATH]
-                try:
-                    mount = ws._registry.mount_for(path)
-                except ValueError:
-                    continue
-                revision = f.get(FingerprintKey.REVISION)
-                if revision is not None:
-                    mount.revisions[path] = revision
-                    continue
-                fingerprint = f.get(FingerprintKey.FINGERPRINT)
-                if fingerprint is not None:
-                    ws._pending_drift.append((mount, path, fingerprint))
-            ws._drift_check_pending = bool(ws._pending_drift)
+        install_fingerprints(ws,
+                             state.get(StateKey.FINGERPRINTS) or [],
+                             drift_policy)
         live_only = state.get(StateKey.LIVE_ONLY_MOUNTS) or []
         if live_only:
             logger.warning(
-                "Workspace.load: %s mount(s) opt out of snapshot replay; "
-                "reads against them will serve current state with no drift "
-                "detection: %s", len(live_only), live_only)
+                "Workspace.from_state: %s mount(s) opt out of snapshot "
+                "replay; reads against them will serve current state with "
+                "no drift detection: %s", len(live_only), live_only)
         return ws
 
     async def copy(self) -> "Workspace":
@@ -414,10 +404,9 @@ class Workspace:
         # GDrive) stay shared between original and copy. Local backends
         # (RAM, Disk) restore their content fresh into the new resources
         # — see snapshot.api.snapshot docstring for the rationale.
-        # Only reuse resources whose state declares needs_override=True
-        # (S3, Redis, GDrive...). Local content resources (RAM, Disk)
-        # are reconstructed fresh so the copy's writes don't clobber
-        # the original's in-process data.
+        # Only reuse resources whose state has redacted secrets or connection
+        # material. Local content resources (RAM, Disk) are reconstructed
+        # fresh so the copy's writes don't clobber the original's data.
         state = to_state_dict(self)
         auto_prefixes = {"/dev/"}
         if self.observer is not None:
@@ -428,8 +417,7 @@ class Workspace:
         }
         resources = {
             m["prefix"]: prefix_to_resource[m["prefix"]]
-            for m in state["mounts"]
-            if m["resource_state"].get("needs_override")
+            for m in state["mounts"] if requires_resource_override(m)
             and m["prefix"] in prefix_to_resource
         }
         return type(self)._from_state(state, resources=resources)
@@ -504,34 +492,7 @@ class Workspace:
                        **kwargs: Any) -> tuple[Any, IOResult]:
         if self._drift_check_pending:
             await self._run_pending_drift_check()
-        mount = self._registry.mount_for(path.original)
-        assert_mount_allowed(mount.prefix)
-        cacheable = mount.resource.is_remote is True
-
-        if cacheable and op in _DISPATCH_READ_OPS:
-            cached = await self._cache.get(path.original)
-            if cached is not None:
-                if self._consistency == ConsistencyPolicy.ALWAYS:
-                    try:
-                        remote_stat = await mount.execute_op(
-                            "stat", path.original)
-                    except FileNotFoundError:
-                        await self._cache.remove(path.original)
-                        raise
-                    if (remote_stat is not None
-                            and remote_stat.fingerprint is not None):
-                        fresh = await self._cache.is_fresh(
-                            path.original, remote_stat.fingerprint)
-                        if not fresh:
-                            await self._cache.remove(path.original)
-                            cached = None
-                if cached is not None:
-                    return cached, IOResult(reads={path.original: cached})
-
-        result = await mount.execute_op(op, path.original, **kwargs)
-        if op in _DISPATCH_WRITE_OPS:
-            await self._invalidate_after_write(mount, path.original)
-        return result, IOResult()
+        return await self._dispatcher.dispatch(op, path, **kwargs)
 
     async def _run_pending_drift_check(self) -> None:
         """Drain the post-load drift check.
@@ -576,56 +537,10 @@ class Workspace:
     # ── execution ────────────────────────────────────────────────────────────
 
     async def apply_io(self, io: IOResult) -> None:
-        await cache_io.apply_io(self._cache, io, self._is_cacheable_path)
-        if io.writes:
-            await self._invalidate_index_dirs(io)
-
-    def _is_cacheable_path(self, path: str) -> bool:
-        try:
-            mount = self._registry.mount_for(path)
-        except ValueError:
-            return False
-        return mount.resource.is_remote is True
+        await self._dispatcher.apply_io(io)
 
     async def _invalidate_after_write_by_path(self, path: str) -> None:
-        """Drop file-cache + stale parent index after a write to `path`.
-
-        Single source of truth for post-write invalidation. Called from
-        both `Workspace.dispatch()` and `Ops._call(write=True)` so a
-        write through any code path sees the same invalidation rules:
-        file cache is dropped only for remote-backed mounts, and the
-        parent directory index is dirtied for any mount that maintains
-        an index. No-op for paths that resolve to no known mount.
-        """
-        try:
-            mount = self._registry.mount_for(path)
-        except ValueError:
-            return
-        await self._invalidate_after_write(mount, path)
-
-    async def _invalidate_after_write(self, mount: Mount, path: str) -> None:
-        if mount.resource.is_remote is True:
-            await self._cache.remove(path)
-        idx = getattr(mount.resource, "index", None)
-        if idx is not None:
-            parent = path.rsplit("/", 1)[0] or "/"
-            await idx.invalidate_dir(parent)
-            await idx.invalidate_dir(parent + "/")
-
-    async def _invalidate_index_dirs(self, io: IOResult) -> None:
-        dirs_seen: set[str] = set()
-        for path in io.writes:
-            try:
-                mount = self._registry.mount_for(path)
-            except ValueError:
-                continue
-            parent = path.rsplit("/", 1)[0] or "/"
-            if parent in dirs_seen:
-                continue
-            dirs_seen.add(parent)
-            idx = mount.resource.index
-            await idx.invalidate_dir(parent)
-            await idx.invalidate_dir(parent + "/")
+        await self._dispatcher.invalidate_after_write_by_path(path)
 
     async def _record_execution(
         self,
@@ -660,6 +575,10 @@ class Workspace:
             self.history.append(exec_record)
             if self.observer is not None:
                 await self.observer.log_command(exec_record, session_cwd)
+
+    async def _exec_recursion(self, cancel: asyncio.Event | None, cmd: str,
+                              **opts: Any) -> Any:
+        return await self.execute(cmd, cancel=cancel, **opts)
 
     async def execute(
         self,
@@ -725,8 +644,7 @@ class Workspace:
         io = IOResult()
         exec_node = ExecutionNode(command=command, exit_code=0)
 
-        async def _exec_for_recursion(cmd: str, **opts: Any) -> Any:
-            return await self.execute(cmd, cancel=cancel, **opts)
+        exec_recursion = partial(self._exec_recursion, cancel)
 
         session_token = set_current_session(effective_session)
         try:
@@ -743,27 +661,25 @@ class Workspace:
                 return io
             if provision:
                 return await provision_node(self._registry, self.dispatch,
-                                            _exec_for_recursion, ast,
+                                            exec_recursion, ast,
                                             effective_session)
             records = start_recording()
-            stdout, io, exec_node = await _execute_node(
+            io, exec_node = await run_command_tree(
                 self.dispatch,
                 self._registry,
                 self.job_table,
-                _exec_for_recursion,
+                exec_recursion,
                 self._current_agent_id,
                 ast,
                 effective_session,
                 stdin,
-                history=self.history,
-                cancel=cancel,
+                self.history,
+                cancel,
             )
-            stdout = await apply_barrier(stdout, io, BarrierPolicy.VALUE)
             session.last_exit_code = io.exit_code
             stop_recording()
             self._ops.records.extend(records)
             exec_node.records = records
-            io.stdout = stdout
             await self.apply_io(io)
             return io
         except (MirageAbortError, ContentDriftError):

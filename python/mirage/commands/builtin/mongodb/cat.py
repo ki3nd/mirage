@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 
 from mirage.accessor.mongodb import MongoDBAccessor
 from mirage.cache.index import IndexCacheStore
+from mirage.commands.builtin.generic.cat import cat as generic_cat
 from mirage.commands.builtin.mongodb._provision import file_read_provision
 from mirage.commands.builtin.utils.stream import _resolve_source
 from mirage.commands.registry import command
@@ -25,7 +26,8 @@ from mirage.core.mongodb.read import read as mongodb_read
 from mirage.core.mongodb.scope import detect_scope
 from mirage.core.mongodb.stream import read_stream
 from mirage.core.mongodb.types import ScopeLevel
-from mirage.io.async_line_iterator import AsyncLineIterator
+from mirage.io.cachable_iterator import CachableAsyncIterator
+from mirage.io.stream import async_chain
 from mirage.io.types import ByteSource, IOResult
 from mirage.provision.types import ProvisionResult
 from mirage.types import PathSpec
@@ -43,18 +45,6 @@ async def cat_provision(
                           for p in paths))
 
 
-async def _number_lines_stream(
-        source: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
-    num = 1
-    async for line in AsyncLineIterator(source):
-        yield f"     {num}\t".encode() + line + b"\n"
-        num += 1
-
-
-async def _bytes_to_stream(data: bytes) -> AsyncIterator[bytes]:
-    yield data
-
-
 @command("cat", resource="mongodb", spec=SPECS["cat"], provision=cat_provision)
 async def cat(
     accessor: MongoDBAccessor,
@@ -66,22 +56,41 @@ async def cat(
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     if paths:
-        paths = await resolve_glob(accessor, paths)
-        p = paths[0]
-        scope = detect_scope(p)
-        if scope.level == ScopeLevel.DOCUMENTS:
-            source = read_stream(accessor, p, index)
-            io = IOResult(reads={p.strip_prefix: source},
+        paths = await resolve_glob(accessor, paths, index)
+        # Single file: return the read result directly (bytes) or a cachable
+        # tee returned AS stdout so the cache fills as the consumer reads.
+        # Multiple files: a joined stdout is a different object from the
+        # per-file cachables, so the cache-fill background drain races the
+        # consumer on the same network stream and poisons the cache. Read each
+        # file fully to bytes: cache real bytes directly and concatenate.
+        if len(paths) == 1:
+            p = paths[0]
+            scope = detect_scope(p)
+            if scope.level == ScopeLevel.DOCUMENTS:
+                value: ByteSource = CachableAsyncIterator(
+                    read_stream(accessor, p, index))
+            else:
+                value = await mongodb_read(accessor, p, index)
+            io = IOResult(reads={p.strip_prefix: value},
                           cache=[p.strip_prefix])
-            if n:
-                return _number_lines_stream(source), io
-            return source, io
-        data = await mongodb_read(accessor, p, index)
-        io = IOResult(reads={p.strip_prefix: data}, cache=[p.strip_prefix])
-        if n:
-            return _number_lines_stream(_bytes_to_stream(data)), io
-        return data, io
+            source: ByteSource = value
+        else:
+            reads: dict[str, ByteSource] = {}
+            parts: list[bytes] = []
+            for p in paths:
+                scope = detect_scope(p)
+                if scope.level == ScopeLevel.DOCUMENTS:
+                    data = b"".join([
+                        chunk
+                        async for chunk in read_stream(accessor, p, index)
+                    ])
+                else:
+                    data = await mongodb_read(accessor, p, index)
+                reads[p.strip_prefix] = data
+                parts.append(data)
+            io = IOResult(reads=reads, cache=list(reads))
+            source = async_chain(*parts)
+        return (generic_cat(source, number_lines=True) if n else source), io
     source = _resolve_source(stdin, "cat: missing operand")
-    if n:
-        return _number_lines_stream(source), IOResult()
-    return source, IOResult()
+    return (generic_cat(source, number_lines=True)
+            if n else source), IOResult()

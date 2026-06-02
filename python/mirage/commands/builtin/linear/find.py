@@ -17,6 +17,7 @@ import fnmatch
 from mirage.accessor.linear import LinearAccessor
 from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.linear._provision import metadata_provision
+from mirage.commands.builtin.utils.output import format_records
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.linear.glob import resolve_glob
@@ -73,9 +74,10 @@ async def find(
     path: str | None = None,
     mindepth: str | None = None,
     prefix: str = "",
+    index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
-    index: IndexCacheStore | None = _extra.get("index")
+    index: IndexCacheStore | None = index
     paths = await resolve_glob(accessor, paths, index)
     p0 = paths[0]
     root = p0.original
@@ -122,4 +124,4 @@ async def find(
         else:
             value = entry_path
         results.append(value)
-    return "\n".join(results).encode(), IOResult()
+    return format_records(results), IOResult()

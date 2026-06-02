@@ -15,8 +15,9 @@
 import os
 
 from mirage.server.app import build_app
-from mirage.server.env import ENV_IDLE_GRACE_SECONDS
+from mirage.server.env import ENV_IDLE_GRACE_SECONDS, ENV_VERSION_ROOT
 
 _idle_grace = float(os.environ.get(ENV_IDLE_GRACE_SECONDS, "30"))
+_version_root = os.environ.get(ENV_VERSION_ROOT)
 
-app = build_app(idle_grace_seconds=_idle_grace)
+app = build_app(idle_grace_seconds=_idle_grace, version_root=_version_root)

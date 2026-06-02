@@ -2,6 +2,8 @@ import fnmatch
 from collections.abc import Awaitable, Callable
 
 from mirage.cache.index import IndexCacheStore
+from mirage.commands.builtin.utils.output import (format_optional_records,
+                                                  format_records)
 from mirage.io.types import IOResult
 from mirage.types import FileStat, FileType, PathSpec
 
@@ -15,7 +17,7 @@ async def _walk(
     path: PathSpec,
     readdir: Callable[[PathSpec, IndexCacheStore | None],
                       Awaitable[list[str]]],
-    stat: Callable[[PathSpec], Awaitable[FileStat]],
+    stat: Callable[[PathSpec, IndexCacheStore | None], Awaitable[FileStat]],
     *,
     prefix: str,
     depth: int,
@@ -41,7 +43,7 @@ async def _walk(
                               resolved=False,
                               prefix=path.prefix)
         try:
-            s = await stat(entry_spec)
+            s = await stat(entry_spec, index)
         except (FileNotFoundError, ValueError) as exc:
             warnings.append(f"tree: '{entry}': {exc}")
             continue
@@ -87,7 +89,7 @@ async def tree(
     *,
     readdir: Callable[[PathSpec, IndexCacheStore | None],
                       Awaitable[list[str]]],
-    stat: Callable[[PathSpec], Awaitable[FileStat]],
+    stat: Callable[[PathSpec, IndexCacheStore | None], Awaitable[FileStat]],
     max_depth: int | None = None,
     show_hidden: bool = False,
     ignore_pattern: str | None = None,
@@ -108,8 +110,8 @@ async def tree(
                         match_pattern=match_pattern,
                         warnings=warnings,
                         index=index)
-    output = "\n".join(lines).encode()
-    stderr = "\n".join(warnings).encode() if warnings else None
+    output = format_records(lines)
+    stderr = format_optional_records(warnings)
     return output, IOResult(stderr=stderr)
 
 

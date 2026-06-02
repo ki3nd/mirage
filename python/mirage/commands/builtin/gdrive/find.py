@@ -17,6 +17,7 @@ import fnmatch
 from mirage.accessor.gdrive import GDriveAccessor
 from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.gdrive._provision import metadata_provision
+from mirage.commands.builtin.utils.output import format_records
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.gdrive.glob import resolve_glob
@@ -59,12 +60,13 @@ async def find_provision(
     accessor: GDriveAccessor,
     paths: list[PathSpec],
     *texts: str,
+    index: IndexCacheStore = None,
     **_extra: object,
 ) -> ProvisionResult:
     return await metadata_provision(
         "find " + " ".join(p.original if isinstance(p, PathSpec) else p
                            for p in paths),
-        index=_extra.get("index"))
+        index=index)
 
 
 @command("find",
@@ -113,5 +115,5 @@ async def find(
         if iname and not fnmatch.fnmatch(entry_name.lower(), iname.lower()):
             continue
         results.append(p)
-    output = "\n".join(results).encode()
+    output = format_records(results)
     return output, IOResult()

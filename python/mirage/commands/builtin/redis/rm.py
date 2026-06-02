@@ -13,6 +13,8 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.redis import RedisAccessor
+from mirage.cache.index import IndexCacheStore
+from mirage.commands.builtin.utils.output import format_optional_records
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.redis.glob import resolve_glob
@@ -35,11 +37,12 @@ async def rm(
     f: bool = False,
     v: bool = False,
     d: bool = False,
+    index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     if accessor.store is None or not paths:
         raise ValueError("rm: missing operand")
-    paths = await resolve_glob(accessor, paths, _extra.get("index"))
+    paths = await resolve_glob(accessor, paths, index)
     recursive = r or R
     verbose_parts: list[str] = []
     removed: dict[str, bytes] = {}
@@ -63,5 +66,5 @@ async def rm(
         removed[p.strip_prefix] = b""
         if v:
             verbose_parts.append(f"removed '{p.original}'")
-    output = "\n".join(verbose_parts).encode() if v else None
+    output = format_optional_records(verbose_parts) if v else None
     return output, IOResult(writes=removed)

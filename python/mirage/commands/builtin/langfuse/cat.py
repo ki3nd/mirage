@@ -15,6 +15,8 @@
 from collections.abc import AsyncIterator
 
 from mirage.accessor.langfuse import LangfuseAccessor
+from mirage.cache.index import IndexCacheStore
+from mirage.commands.builtin.generic.cat import cat as generic_cat
 from mirage.commands.builtin.langfuse._provision import file_read_provision
 from mirage.commands.builtin.utils.stream import _resolve_source
 from mirage.commands.registry import command
@@ -38,12 +40,6 @@ async def cat_provision(
                           for p in paths))
 
 
-async def _number_lines(data: bytes) -> AsyncIterator[bytes]:
-    lines = data.decode(errors="replace").splitlines()
-    for i, line in enumerate(lines, 1):
-        yield f"     {i}\t{line}\n".encode()
-
-
 @command("cat",
          resource="langfuse",
          spec=SPECS["cat"],
@@ -54,20 +50,21 @@ async def cat(
     *texts: str,
     stdin: AsyncIterator[bytes] | bytes | None = None,
     n: bool = False,
+    index: IndexCacheStore = None,
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     if paths:
-        paths = await resolve_glob(accessor, paths)
-        p = paths[0]
-        data = await langfuse_read(accessor, p, _extra.get("index"))
-        io = IOResult(reads={p.strip_prefix: data}, cache=[p.strip_prefix])
+        paths = await resolve_glob(accessor, paths, index)
+        reads = {
+            p.strip_prefix: await langfuse_read(accessor, p, index)
+            for p in paths
+        }
+        merged = b"".join(reads.values())
+        io = IOResult(reads=reads, cache=list(reads))
         if n:
-            return _number_lines(data), io
-        return data, io
+            return generic_cat(merged, number_lines=True), io
+        return merged, io
     source = _resolve_source(stdin, "cat: missing operand")
     if n:
-        raw = b""
-        async for chunk in source:
-            raw += chunk
-        return _number_lines(raw), IOResult()
+        return generic_cat(source, number_lines=True), IOResult()
     return source, IOResult()

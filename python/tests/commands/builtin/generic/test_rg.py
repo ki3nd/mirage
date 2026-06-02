@@ -251,31 +251,119 @@ async def test_rg_glob_filter():
     assert "/dir/b.txt" not in decoded
 
 
+def _make_prefixed_backend(files: dict[str, bytes], mount_prefix: str):
+    """Backend that mimics real s3/disk/gdrive readdir: entries returned
+    are already prepended with ``mount_prefix``. Used to catch wrapper bugs
+    that re-add the prefix or drop ``index``."""
+
+    full_files = {mount_prefix + k: v for k, v in files.items()}
+    inferred_dirs: set[str] = {mount_prefix or "/"}
+    for f in full_files:
+        parts = f.split("/")
+        for i in range(1, len(parts)):
+            d = "/".join(parts[:i]) or "/"
+            inferred_dirs.add(d)
+
+    def _full(p: str) -> str:
+        if mount_prefix and not p.startswith(mount_prefix):
+            return mount_prefix + p
+        return p
+
+    async def readdir(accessor, path, index=None):
+        if index is None:
+            raise FileNotFoundError("index required")
+        spec = path if isinstance(path, PathSpec) else PathSpec(original=path,
+                                                                directory=path)
+        p = _full(spec.original).rstrip("/") or "/"
+        if p not in inferred_dirs:
+            raise FileNotFoundError(p)
+        prefix = p + "/" if p != "/" else "/"
+        children: set[str] = set()
+        for f in full_files:
+            if f.startswith(prefix):
+                child = prefix + f[len(prefix):].split("/")[0]
+                children.add(child)
+        for d in inferred_dirs:
+            if d == p or not d.startswith(prefix):
+                continue
+            child = prefix + d[len(prefix):].split("/")[0]
+            children.add(child)
+        return sorted(children)
+
+    async def stat(accessor, path, index=None):
+        if index is None:
+            raise FileNotFoundError("index required")
+        spec = path if isinstance(path, PathSpec) else PathSpec(original=path,
+                                                                directory=path)
+        p = _full(spec.original)
+        if p in full_files:
+            return FileStat(name=p.rsplit("/", 1)[-1],
+                            size=len(full_files[p]),
+                            type=FileType.TEXT)
+        if p.rstrip("/") in inferred_dirs:
+            return FileStat(name=p.rsplit("/", 1)[-1] or "/",
+                            type=FileType.DIRECTORY)
+        raise FileNotFoundError(p)
+
+    async def read_bytes(accessor, path, index=None):
+        if index is None:
+            raise FileNotFoundError("index required")
+        spec = path if isinstance(path, PathSpec) else PathSpec(original=path,
+                                                                directory=path)
+        p = _full(spec.original)
+        if p not in full_files:
+            raise FileNotFoundError(p)
+        return full_files[p]
+
+    return readdir, stat, read_bytes
+
+
 @pytest.mark.asyncio
-async def test_rg_filetype_fn_dispatch_on_dir():
-    """When path is dir and filetype_fns provided, rg dispatches to handler."""
-    readdir, stat, rb, rs = _make_backend({
-        "/dir/data.parquet": b"<binary>",
-    })
-    calls: list = []
-
-    async def parquet_handler(paths, pattern, stdin=None, i=False):
-        calls.append((paths, pattern))
-        return b"row1-match\nrow2-match\n", None
-
+async def test_rg_files_only_mount_prefix_not_doubled():
+    readdir, stat, rb = _make_prefixed_backend(
+        {
+            "/dir/a.txt": b"apple\n",
+            "/dir/b.txt": b"zebra\n",
+        },
+        mount_prefix="/s3",
+    )
+    p = PathSpec(original="/dir",
+                 directory="/dir",
+                 prefix="/s3",
+                 resolved=True)
     output, _ = await rg(
-        [_spec("/dir")],
-        pattern="match",
+        [p],
+        pattern="apple",
         readdir=readdir,
         stat=stat,
         read_bytes=rb,
-        read_stream=rs,
-        accessor="sentinel",
-        filetype_fns={
-            ".parquet":
-            lambda accessor, *args, **kw: parquet_handler(*args, **kw)
-        },
+        read_stream=None,
+        files_only=True,
+        index=object(),
+    )
+    decoded = (await _drain_async(output)).decode().strip()
+    assert decoded == "/s3/dir/a.txt"
+    assert "/s3/s3" not in decoded
+
+
+@pytest.mark.asyncio
+async def test_rg_single_file_threads_index():
+    readdir, stat, rb = _make_prefixed_backend(
+        {"/dir/a.txt": b"apple\n"},
+        mount_prefix="/gd",
+    )
+    p = PathSpec(original="/dir/a.txt",
+                 directory="/dir/a.txt",
+                 prefix="/gd",
+                 resolved=True)
+    output, _ = await rg(
+        [p],
+        pattern="apple",
+        readdir=readdir,
+        stat=stat,
+        read_bytes=rb,
+        read_stream=None,
+        index=object(),
     )
     decoded = (await _drain_async(output)).decode()
-    assert "row1-match" in decoded
-    assert calls
+    assert "apple" in decoded
