@@ -39,7 +39,7 @@ def _res():
 @pytest.mark.asyncio
 async def test_rg_recursive_by_default_matches_content():
     res = _res()
-    p = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     source, _io = await rg.__wrapped__(res.accessor, [p],
                                        "bananas",
                                        index=res._index)

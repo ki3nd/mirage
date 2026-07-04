@@ -12,16 +12,17 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import type { PathSpec } from '@struktoai/mirage-core'
+import { type PathSpec, invalidateAfterUnlink } from '@struktoai/mirage-core'
 import type { RedisAccessor } from '../../accessor/redis.ts'
 import { norm } from './utils.ts'
 
 export async function unlink(accessor: RedisAccessor, path: PathSpec): Promise<void> {
-  const p = norm(path.stripPrefix)
+  const p = norm(path.mountPath)
   const store = accessor.store
   if (!(await store.hasFile(p))) {
     throw new Error(`file not found: ${p}`)
   }
   await store.delFile(p)
   await store.delModified(p)
+  await invalidateAfterUnlink(p)
 }

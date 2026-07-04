@@ -39,7 +39,7 @@ def _res():
 @pytest.mark.asyncio
 async def test_grep_recursive_matches_content():
     res = _res()
-    p = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     source, _io = await grep.__wrapped__(res.accessor, [p],
                                          "bananas",
                                          r=True,
@@ -52,7 +52,7 @@ async def test_grep_recursive_matches_content():
 @pytest.mark.asyncio
 async def test_grep_ignores_metadata():
     res = _res()
-    p = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     source, _io = await grep.__wrapped__(res.accessor, [p],
                                          "food",
                                          r=True,
@@ -65,7 +65,7 @@ async def test_grep_ignores_metadata():
 @pytest.mark.asyncio
 async def test_grep_bare_directory_is_a_directory():
     res = _res()
-    p = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     source, io = await grep.__wrapped__(res.accessor, [p],
                                         "bananas",
                                         index=res._index)

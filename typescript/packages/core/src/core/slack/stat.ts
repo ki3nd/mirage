@@ -12,32 +12,23 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { SlackAccessor } from '../../accessor/slack.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { FileStat, FileType, PathSpec } from '../../types.ts'
 import { readdir as coreReaddir } from './readdir.ts'
+import { epochToIso } from '../../utils/dates.ts'
+import { filetypeFromMimetype } from '../../utils/filetype.ts'
 import { stripSlash } from '../../utils/slash.ts'
 
 const VIRTUAL_DIRS: ReadonlySet<string> = new Set(['', 'channels', 'dms', 'users'])
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-const MIMETYPE_MAP: Record<string, FileType> = {
-  'application/pdf': FileType.PDF,
-  'application/zip': FileType.ZIP,
-  'application/gzip': FileType.GZIP,
-  'application/json': FileType.JSON,
-  'image/png': FileType.IMAGE_PNG,
-  'image/jpeg': FileType.IMAGE_JPEG,
-  'image/gif': FileType.IMAGE_GIF,
-  'text/csv': FileType.CSV,
-}
-
-function filetypeFromMimetype(mime: string): FileType {
-  if (mime === '') return FileType.BINARY
-  const mapped = MIMETYPE_MAP[mime]
-  if (mapped !== undefined) return mapped
-  if (mime.startsWith('text/')) return FileType.TEXT
-  return FileType.BINARY
+function slackModified(remoteTime: string): string | null {
+  if (remoteTime === '') return null
+  const ts = Number.parseFloat(remoteTime)
+  if (Number.isNaN(ts) || ts <= 0) return null
+  return epochToIso(ts)
 }
 
 function fileNotFound(key: string): Error {
@@ -61,10 +52,10 @@ async function lookupWithFallback(
     await coreReaddir(
       accessor,
       new PathSpec({
-        original: parentVirtual,
+        virtual: parentVirtual,
         directory: parentVirtual,
         resolved: false,
-        prefix,
+        resourcePath: mountKey(parentVirtual, prefix),
       }),
       index,
     )
@@ -79,8 +70,8 @@ export async function stat(
   path: PathSpec,
   index?: IndexCacheStore,
 ): Promise<FileStat> {
-  const prefix = path.prefix
-  let raw = path.original
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  let raw = path.virtual
   if (prefix !== '' && raw.startsWith(prefix)) {
     raw = raw.slice(prefix.length) || '/'
   }
@@ -106,6 +97,7 @@ export async function stat(
     return new FileStat({
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       type: FileType.DIRECTORY,
+      modified: slackModified(lookup.entry.remoteTime),
       extra: { channel_id: lookup.entry.id },
     })
   }
@@ -162,6 +154,7 @@ export async function stat(
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       type: filetypeFromMimetype(mimetype),
       size: lookup.entry.size ?? null,
+      modified: slackModified(lookup.entry.remoteTime),
       extra: { file_id: lookup.entry.id },
     })
   }

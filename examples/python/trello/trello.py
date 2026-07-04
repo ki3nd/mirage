@@ -62,6 +62,12 @@ async def main() -> None:
                                     )
     print(await board_result.stdout_str())
 
+    print(f"=== ls -l /trello/workspaces/{first_ws}/boards/ "
+          "(mtime from dateLastActivity) ===")
+    long_boards = await ws.execute(
+        f"ls -l /trello/workspaces/{first_ws}/boards/")
+    print(await long_boards.stdout_str())
+
     first_board = (await
                    board_result.stdout_str()).strip().splitlines()[0] if (
                        await board_result.stdout_str()).strip() else ""
@@ -163,6 +169,14 @@ async def main() -> None:
     print("=== find cards -name '*.json' ===")
     result = await ws.execute(
         f'find {list_path}/cards/ -name "*.json" | head -n 5')
+    print(await result.stdout_str())
+
+    print("=== find board -type d (directory filter) ===")
+    result = await ws.execute(f"find {board_path}/ -type d | head -n 5")
+    print(await result.stdout_str())
+
+    print("=== du -s board (walk fallback) ===")
+    result = await ws.execute(f"du -s {board_path}/")
     print(await result.stdout_str())
 
     ws_path = f"/trello/workspaces/{first_ws}"

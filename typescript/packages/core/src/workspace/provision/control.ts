@@ -33,20 +33,56 @@ async function planBody(
   return rollupList(';', children)
 }
 
-export async function handleIfProvision(
+/**
+ * Plan a shell function call: the body's cost. Recursive functions
+ * would loop the planner, so a function already being planned reports
+ * UNKNOWN instead of recursing again.
+ */
+export async function handleFunctionProvision(
   provisionNode: ProvisionNodeFn,
-  branches: readonly [unknown, unknown][],
-  elseBody: unknown,
+  name: string,
+  body: readonly unknown[],
+  planning: Set<string>,
   session: Session,
 ): Promise<ProvisionResult> {
+  if (planning.has(name)) {
+    return new ProvisionResult({ command: name, precision: Precision.UNKNOWN })
+  }
+  planning.add(name)
+  let result: ProvisionResult
+  try {
+    result = await planBody(provisionNode, body, session)
+  } finally {
+    planning.delete(name)
+  }
+  if (result.command === null || result.command === '') result.command = name
+  return result
+}
+
+/**
+ * Plan an if: branches bracket as alternatives. Taking branch i
+ * evaluates conditions 1..i plus body i, so each alternative sums its
+ * condition ladder with its body. The else (or, without one, the
+ * fall-through) still pays every condition.
+ */
+export async function handleIfProvision(
+  provisionNode: ProvisionNodeFn,
+  branches: readonly [unknown, readonly unknown[]][],
+  elseBody: readonly unknown[] | null,
+  session: Session,
+): Promise<ProvisionResult> {
+  const condCosts: ProvisionResult[] = []
   const children: ProvisionResult[] = []
   for (const [condition, body] of branches) {
-    children.push(await provisionNode(condition, session))
-    children.push(await provisionNode(body, session))
+    condCosts.push(await provisionNode(condition, session))
+    const bodyResult = await planBody(provisionNode, body, session)
+    children.push(rollupList(';', [...condCosts, bodyResult]))
   }
-  if (elseBody !== null && elseBody !== undefined) {
-    children.push(await provisionNode(elseBody, session))
-  }
+  const elseResult =
+    elseBody !== null
+      ? await planBody(provisionNode, elseBody, session)
+      : new ProvisionResult({ precision: Precision.EXACT })
+  children.push(rollupList(';', [...condCosts, elseResult]))
   return rollupList('||', children)
 }
 
@@ -57,20 +93,7 @@ export async function handleForProvision(
   session: Session,
 ): Promise<ProvisionResult> {
   const result = await planBody(provisionNode, body, session)
-  return new ProvisionResult({
-    command: 'for',
-    networkReadLow: result.networkReadLow * n,
-    networkReadHigh: result.networkReadHigh * n,
-    cacheReadLow: result.cacheReadLow * n,
-    cacheReadHigh: result.cacheReadHigh * n,
-    networkWriteLow: result.networkWriteLow * n,
-    networkWriteHigh: result.networkWriteHigh * n,
-    cacheWriteLow: result.cacheWriteLow * n,
-    cacheWriteHigh: result.cacheWriteHigh * n,
-    readOps: result.readOps * n,
-    cacheHits: result.cacheHits * n,
-    precision: result.precision,
-  })
+  return result.scaled(n, 'for')
 }
 
 export async function handleWhileProvision(

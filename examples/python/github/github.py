@@ -14,6 +14,7 @@
 
 import asyncio
 import os
+import time
 
 from dotenv import load_dotenv
 
@@ -23,6 +24,12 @@ from mirage.resource.github import GitHubConfig, GitHubResource
 load_dotenv(".env.development")
 
 config = GitHubConfig(token=os.environ["GITHUB_TOKEN"])
+
+
+async def _timed(ws, cmd):
+    start = time.perf_counter()
+    out = await (await ws.execute(cmd)).stdout_str()
+    return (time.perf_counter() - start) * 1000, out
 
 
 async def main() -> None:
@@ -129,6 +136,50 @@ async def main() -> None:
         for line in lines[:3]:
             print(f"  {line[:150]}")
 
+    # ── subdir + regex narrowing + -l short-circuit (issue #404) ──
+    # A large subdir (>100 files) is what makes the per-file fallback slow;
+    # these cases narrow via GitHub code search instead of fetching each file.
+    big_dir = "/github/python/mirage/"
+    print(f"\n=== grep -rln BaseResource {big_dir} "
+          "(subdir narrowing, -l short-circuit) ===")
+    ms, out = await _timed(ws, f"grep -rln BaseResource {big_dir}")
+    files = out.strip().splitlines() if out.strip() else []
+    print(f"  {ms:.0f}ms  files-with-matches: {len(files)}")
+    for line in files[:3]:
+        print(f"  {line}")
+
+    print(f"\n=== grep -rn 'async def .*self' {big_dir} "
+          "(regex narrows via required literal 'async def ') ===")
+    ms, out = await _timed(ws, f"grep -rn 'async def .*self' {big_dir}")
+    lines = out.strip().splitlines() if out.strip() else []
+    print(f"  {ms:.0f}ms  matches: {len(lines)}")
+    for line in lines[:3]:
+        print(f"  {line[:150]}")
+
+    print(f"\n=== rg -l GitHubAccessor {big_dir} "
+          "(rg subdir narrowing, -l short-circuit) ===")
+    ms, out = await _timed(ws, f"rg -l GitHubAccessor {big_dir}")
+    files = out.strip().splitlines() if out.strip() else []
+    print(f"  {ms:.0f}ms  files-with-matches: {len(files)}")
+    for line in files[:3]:
+        print(f"  {line}")
+
+    print(f"\n=== rg -l --glob '*.py' GitHubAccessor {big_dir} "
+          "(file filter applied to narrowed set) ===")
+    ms, out = await _timed(ws, f"rg -l --glob '*.py' GitHubAccessor {big_dir}")
+    files = out.strip().splitlines() if out.strip() else []
+    print(f"  {ms:.0f}ms  files-with-matches: {len(files)}")
+    for line in files[:3]:
+        print(f"  {line}")
+
+    print(f"\n=== rg -l --type py GitHubAccessor {big_dir} "
+          "(--type filter applied to narrowed set) ===")
+    ms, out = await _timed(ws, f"rg -l --type py GitHubAccessor {big_dir}")
+    files = out.strip().splitlines() if out.strip() else []
+    print(f"  {ms:.0f}ms  files-with-matches: {len(files)}")
+    for line in files[:3]:
+        print(f"  {line}")
+
     print("=== find -type d ===")
     r = await ws.execute("find /github/python/mirage/core -type d")
     print(await r.stdout_str())
@@ -198,6 +249,10 @@ async def main() -> None:
         "grep 'import' /github/python/mirage/types.py | sort | uniq")
     print(await r.stdout_str())
 
+    print("=== uniq (file path, streams via github read) ===")
+    r = await ws.execute("uniq /github/python/mirage/types.py")
+    print(await r.stdout_str())
+
     print("=== sha256sum ===")
     r = await ws.execute("sha256sum /github/python/mirage/types.py")
     print(await r.stdout_str())
@@ -258,6 +313,22 @@ async def main() -> None:
     print("=== rg ===")
     r = await ws.execute("rg 'BaseResource' /github/python/mirage/resource/")
     print(await r.stdout_str())
+
+    print(
+        "=== caching: a warm read is served from cache (no backend fetch) ===")
+    cache_file = "/github/python/mirage/workspace/workspace.py"
+    cold_ms, body = await _timed(ws, f"cat {cache_file}")
+    warm_ms, _ = await _timed(ws, f"cat {cache_file}")
+    grep_ms, _ = await _timed(ws, f"grep 'def ' {cache_file}")
+    head_ms, _ = await _timed(ws, f"head -n 5 {cache_file}")
+    tail_ms, _ = await _timed(ws, f"tail -n 5 {cache_file}")
+    wc_ms, _ = await _timed(ws, f"wc -l {cache_file}")
+    print(f"  file={cache_file} size={len(body)}B")
+    print(f"  cold cat={cold_ms:.0f}ms  warm cat={warm_ms:.0f}ms  "
+          f"grep={grep_ms:.0f}ms head={head_ms:.0f}ms tail={tail_ms:.0f}ms "
+          f"wc={wc_ms:.0f}ms")
+    print(f"  served_from_cache={warm_ms < cold_ms / 5} "
+          f"(warm speedup {cold_ms / max(warm_ms, 0.001):.0f}x)")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ import { randomBytes } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { ChromaClient } from "chromadb";
 import { ChromaResource, MountMode, Workspace } from "@struktoai/mirage-node";
-import { runNotFound } from "./cases.ts";
+import { runNotFound, runProvisionProbe } from "./cases.ts";
 
 const CHROMA_HOST = process.env.CHROMA_HOST ?? "localhost";
 const CHROMA_PORT = Number.parseInt(process.env.CHROMA_PORT ?? "8000", 10);
@@ -125,6 +125,8 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
   ["tree", "tree {root}"],
   ["find_md", "find {root} -name '*.md'"],
   ["find_type_f", "find {root} -type f | sort"],
+  ["find_root_maxdepth0", "find {root} -maxdepth 0"],
+  ["find_root_name", "find {root} -name knowledge"],
   // cold (bespoke) then warm (cache-mount generic) must be identical
   ["grep_cold_single", "grep bearer {root}guides/auth.md"],
   ["grep_warm_single", "grep bearer {root}guides/auth.md"],
@@ -156,7 +158,23 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
   ["poison_concat", "cat {root}guides/quickstart.md {root}guides/auth.md"],
   ["poison_first_intact", "cat {root}guides/quickstart.md"],
   ["poison_second_intact", "cat {root}guides/auth.md"],
-  ["pipe_concat_head", "cat {root}guides/quickstart.md {root}guides/auth.md | head -n 1"],
+  [
+    "pipe_concat_head",
+    "cat {root}guides/quickstart.md {root}guides/auth.md | head -n 1",
+  ],
+  // du has no native op -> exercises the stat/readdir walk fallback,
+  // which must match the Python du builder byte for byte.
+  ["du_guides", "du {root}guides"],
+  ["du_root", "du {root}"],
+  ["du_c_multi", "du -c {root}guides {root}policies"],
+  // symlink into the mount: links are namespace state, so they work on a
+  // read-only backend (no backend write happens)
+  ["sym_ln", "ln -s {root}guides/auth.md {root}meta_link"],
+  ["sym_readlink", "readlink {root}meta_link"],
+  ["sym_cat", "cat {root}meta_link"],
+  ["sym_wc", "wc -l {root}meta_link"],
+  ["sym_ls", "ls -F {root} | grep meta_link"],
+  ["sym_rm", "rm {root}meta_link && ls {root}"],
 ];
 
 function encodedPathTree(): string {
@@ -228,6 +246,7 @@ async function main(): Promise<void> {
       await runCase(ws, name, tmpl.replaceAll("{root}", MOUNT));
     }
     await runNotFound(ws, MOUNT);
+    await runProvisionProbe(ws, `${MOUNT}guides/auth.md`);
   } finally {
     await ws.close();
   }

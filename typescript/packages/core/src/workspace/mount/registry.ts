@@ -12,21 +12,28 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../utils/key_prefix.ts'
 import type { FileCache } from '../../cache/file/mixin.ts'
+import { CacheManager } from '../../cache/manager.ts'
 import { GENERAL_COMMANDS } from '../../commands/builtin/general/index.ts'
-import type { Resource } from '../../resource/base.ts'
+import { cachesReads, type Resource } from '../../resource/base.ts'
 import { DevResource } from '../../resource/dev/dev.ts'
 import { ConsistencyPolicy, MountMode, PathSpec } from '../../types.ts'
-import { Mount } from './mount.ts'
+import { MountEntry } from './mount.ts'
 import { rstripSlash, stripSlash } from '../../utils/slash.ts'
 
 export const DEV_PREFIX = '/dev/'
 
-function isFileCache(resource: Resource): resource is Resource & FileCache {
-  const r = resource as Partial<FileCache>
-  return (
-    typeof r.allCached === 'function' && typeof r.get === 'function' && typeof r.set === 'function'
-  )
+export class MountCommandUnsupported extends Error {
+  readonly cmdName: string
+  readonly backend: string
+
+  constructor(cmdName: string, backend: string) {
+    super(`${cmdName}: not supported on the ${backend} backend`)
+    this.name = 'MountCommandUnsupported'
+    this.cmdName = cmdName
+    this.backend = backend
+  }
 }
 
 export interface OpsMountInfo {
@@ -36,10 +43,31 @@ export interface OpsMountInfo {
 }
 
 export class MountRegistry {
-  private readonly mountList: Mount[]
-  private defaultMountRef: Mount | null = null
+  private readonly mountList: MountEntry[]
+  private rootRef: MountEntry | null = null
   private consistency: ConsistencyPolicy = ConsistencyPolicy.LAZY
   private readonly defaultMode: MountMode
+  private cacheStore: FileCache | null = null
+
+  /**
+   * Attach the workspace file cache and build per-mount CacheManagers.
+   * Called once by Workspace after the cache store exists; mounts
+   * added later get their manager in `mount()`. The cache is a hidden
+   * store, never a mount.
+   */
+  attachFileCache(cache: FileCache | null): void {
+    this.cacheStore = cache
+    for (const m of this.mountList) this.attachManager(m)
+  }
+
+  private attachManager(m: MountEntry): void {
+    m.cacheManager = new CacheManager(
+      this.cacheStore,
+      m.resource.index ?? null,
+      m.prefix,
+      cachesReads(m.resource),
+    )
+  }
 
   constructor(
     resources: Record<string, Resource>,
@@ -47,14 +75,14 @@ export class MountRegistry {
     modeOverrides: Record<string, MountMode> = {},
   ) {
     this.defaultMode = defaultMode
-    const mounts: Mount[] = []
+    const mounts: MountEntry[] = []
     const seen = new Set<string>()
     const overrides: Record<string, MountMode> = {}
     for (const [k, v] of Object.entries(modeOverrides)) {
       overrides[normalizePrefix(k)] = v
     }
     mounts.push(
-      new Mount({ prefix: DEV_PREFIX, resource: new DevResource(), mode: MountMode.WRITE }),
+      new MountEntry({ prefix: DEV_PREFIX, resource: new DevResource(), mode: MountMode.WRITE }),
     )
     seen.add(DEV_PREFIX)
     for (const [rawPrefix, resource] of Object.entries(resources)) {
@@ -64,10 +92,11 @@ export class MountRegistry {
       }
       seen.add(prefix)
       const mode = overrides[prefix] ?? defaultMode
-      mounts.push(new Mount({ prefix, resource, mode }))
+      mounts.push(new MountEntry({ prefix, resource, mode }))
     }
     mounts.sort((a, b) => b.prefix.length - a.prefix.length)
     this.mountList = mounts
+    this.rootRef = mounts.find((m) => m.prefix === '/') ?? null
   }
 
   setConsistency(consistency: ConsistencyPolicy): void {
@@ -88,14 +117,14 @@ export class MountRegistry {
     resource: Resource,
     mode: MountMode = MountMode.READ,
     consistency: ConsistencyPolicy = ConsistencyPolicy.LAZY,
-  ): Mount {
+  ): MountEntry {
     const norm = normalizePrefix(prefix)
     for (const existing of this.mountList) {
       if (existing.prefix === norm) {
         throw new Error(`duplicate mount prefix: ${norm}`)
       }
     }
-    const m = new Mount({ prefix: norm, resource, mode, consistency })
+    const m = new MountEntry({ prefix: norm, resource, mode, consistency })
     const cmds = resource.commands?.()
     if (cmds !== undefined) {
       for (const cmd of cmds) {
@@ -114,8 +143,10 @@ export class MountRegistry {
         else m.registerOp(op)
       }
     }
+    if (this.cacheStore !== null) this.attachManager(m)
     this.mountList.push(m)
     this.mountList.sort((a, b) => b.prefix.length - a.prefix.length)
+    if (norm === '/') this.rootRef = m
     return m
   }
 
@@ -124,7 +155,7 @@ export class MountRegistry {
    * Per-mount commands and ops live on the Mount instance and die with it.
    * The /dev/ mount is reserved and cannot be removed.
    */
-  unmount(prefix: string): Mount {
+  unmount(prefix: string): MountEntry {
     const norm = normalizePrefix(prefix)
     if (norm === DEV_PREFIX) {
       throw new Error(`cannot unmount reserved prefix: ${norm}`)
@@ -137,10 +168,11 @@ export class MountRegistry {
     if (removed === undefined) {
       throw new Error(`no mount at prefix: ${norm}`)
     }
+    if (removed === this.rootRef) this.rootRef = null
     return removed
   }
 
-  mountForPrefix(prefix: string): Mount | null {
+  mountForPrefix(prefix: string): MountEntry | null {
     const norm = normalizePrefix(prefix)
     for (const m of this.mountList) {
       if (m.prefix === norm) return m
@@ -152,9 +184,9 @@ export class MountRegistry {
     return this.mountForPrefix(path) !== null
   }
 
-  descendantMounts(path: string): Mount[] {
+  descendantMounts(path: string): MountEntry[] {
     const norm = normalizePrefix(path)
-    const out: Mount[] = []
+    const out: MountEntry[] = []
     for (const m of this.mountList) {
       if (m.prefix === norm) continue
       if (!m.prefix.startsWith(norm)) continue
@@ -208,8 +240,8 @@ export class MountRegistry {
     }
   }
 
-  groupByMount(paths: readonly string[]): [Mount, string[]][] {
-    const groups = new Map<Mount, string[]>()
+  groupByMount(paths: readonly string[]): [MountEntry, string[]][] {
+    const groups = new Map<MountEntry, string[]>()
     for (const path of paths) {
       const m = this.mountFor(path)
       if (m === null) continue
@@ -219,26 +251,17 @@ export class MountRegistry {
         bucket = []
         groups.set(m, bucket)
       }
-      bucket.push(spec.original)
+      bucket.push(spec.virtual)
     }
     return [...groups.entries()]
   }
 
-  setDefaultMount(resource: Resource): Mount {
-    const mount = new Mount({ prefix: '/_default/', resource, mode: MountMode.WRITE })
-    const ops = resource.ops?.()
-    if (ops !== undefined) {
-      for (const op of ops) {
-        if (op.resource === null) mount.registerGeneralOp(op)
-        else mount.registerOp(op)
-      }
-    }
-    this.defaultMountRef = mount
-    return mount
+  get rootMount(): MountEntry | null {
+    return this.rootRef
   }
 
-  get defaultMount(): Mount | null {
-    return this.defaultMountRef
+  get fileCache(): FileCache | null {
+    return this.cacheStore
   }
 
   resolve(path: string): [Resource, PathSpec, MountMode] {
@@ -249,10 +272,17 @@ export class MountRegistry {
     const hadTrailing = path.endsWith('/')
     const norm = `/${stripSlash(path)}`
     const mountPrefix = rstripSlash(m.prefix)
-    return [m.resource, PathSpec.fromStrPath(hadTrailing ? `${norm}/` : norm, mountPrefix), m.mode]
+    return [
+      m.resource,
+      PathSpec.fromStrPath(
+        hadTrailing ? `${norm}/` : norm,
+        mountKey(hadTrailing ? `${norm}/` : norm, mountPrefix),
+      ),
+      m.mode,
+    ]
   }
 
-  mountFor(path: string): Mount | null {
+  mountFor(path: string): MountEntry | null {
     const norm = `/${stripSlash(path)}`
     for (const m of this.mountList) {
       const prefixNoTrail = rstripSlash(m.prefix) || '/'
@@ -263,7 +293,7 @@ export class MountRegistry {
     return null
   }
 
-  allMounts(): readonly Mount[] {
+  allMounts(): readonly MountEntry[] {
     return this.mountList
   }
 
@@ -280,10 +310,10 @@ export class MountRegistry {
     return false
   }
 
-  mountForCommand(cmdName: string): Mount | null {
-    if (this.defaultMountRef !== null) {
-      const cmd = this.defaultMountRef.resolveCommand(cmdName)
-      if (cmd !== null) return this.defaultMountRef
+  mountForCommand(cmdName: string): MountEntry | null {
+    if (this.rootRef !== null) {
+      const cmd = this.rootRef.resolveCommand(cmdName)
+      if (cmd !== null) return this.rootRef
     }
     for (const m of this.mountList) {
       if (m.prefix === DEV_PREFIX) continue
@@ -298,36 +328,35 @@ export class MountRegistry {
     cmdName: string,
     pathScopes: readonly PathSpec[],
     cwd: string,
-  ): Promise<Mount | null> {
-    const mountPath = pathScopes.length > 0 ? (pathScopes[0]?.original ?? cwd) : cwd
+  ): Promise<MountEntry | null> {
+    const mountPath = pathScopes.length > 0 ? (pathScopes[0]?.virtual ?? cwd) : cwd
     let mount = this.mountFor(mountPath)
+    if (mount !== null && mount.resolveCommand(cmdName) == null && pathScopes.length > 0) {
+      throw new MountCommandUnsupported(cmdName, mount.resource.kind)
+    }
     if (mount?.resolveCommand(cmdName) == null) {
       mount = this.mountForCommand(cmdName)
     }
     if (mount === null) return null
-    const defaultMount = this.defaultMountRef
+    // Warm reads are served in place by withReadCache, so a read-only command
+    // stays on its real mount. The cache is a hidden store (not a mount);
+    // under ALWAYS we evict stale entries from it here so the read-through
+    // serves fresh bytes.
+    const baseCmd = mount.resolveCommand(cmdName)
     if (
-      defaultMount !== null &&
+      this.cacheStore !== null &&
       pathScopes.length > 0 &&
-      isFileCache(defaultMount.resource) &&
-      mount.resource.isRemote === true
+      cachesReads(mount.resource) &&
+      baseCmd?.write !== true &&
+      this.consistency === ConsistencyPolicy.ALWAYS
     ) {
-      const baseCmd = mount.resolveCommand(cmdName)
-      if (!baseCmd?.write) {
-        if (this.consistency === ConsistencyPolicy.ALWAYS) {
-          await this.evictStale(mount, defaultMount.resource, pathScopes)
-        }
-        const keys = pathScopes.map((p) => p.original)
-        if (await defaultMount.resource.allCached(keys)) {
-          mount = defaultMount
-        }
-      }
+      await this.evictStale(mount, this.cacheStore, pathScopes)
     }
     return mount
   }
 
   private async evictStale(
-    realMount: Mount,
+    realMount: MountEntry,
     cache: FileCache,
     pathScopes: readonly PathSpec[],
   ): Promise<void> {
@@ -335,14 +364,14 @@ export class MountRegistry {
     if (resource.fingerprint === undefined) return
     const mountPrefix = rstripSlash(realMount.prefix)
     for (const scope of pathScopes) {
-      const key = scope.original
+      const key = scope.virtual
       if (!(await cache.exists(key))) continue
       const prefixedScope = new PathSpec({
-        original: scope.original,
+        virtual: scope.virtual,
         directory: scope.directory,
         pattern: scope.pattern,
         resolved: scope.resolved,
-        prefix: mountPrefix,
+        resourcePath: mountKey(scope.virtual, mountPrefix),
       })
       let remoteFp: string | null = null
       try {

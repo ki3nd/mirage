@@ -13,15 +13,18 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.s3 import S3Accessor
+from mirage.cache.context import invalidate_after_write
 from mirage.core.s3._client import _client_kwargs, _key, async_session
 from mirage.types import PathSpec
 
 
 async def truncate(accessor: S3Accessor, path: PathSpec, length: int) -> None:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     config = accessor.config
     session = async_session(config)
     async with session.client(**_client_kwargs(config)) as client:
@@ -39,3 +42,4 @@ async def truncate(accessor: S3Accessor, path: PathSpec, length: int) -> None:
         await client.put_object(Bucket=config.bucket,
                                 Key=_key(path, config),
                                 Body=result)
+    await invalidate_after_write(path)

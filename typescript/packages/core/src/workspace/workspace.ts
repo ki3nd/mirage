@@ -16,6 +16,7 @@ import { NOOPAccessor } from '../accessor/base.ts'
 import type { FileCache } from '../cache/file/mixin.ts'
 import type { IndexConfig } from '../cache/index/config.ts'
 import { RAMFileCacheStore } from '../cache/file/ram.ts'
+import { RAMResource } from '../resource/ram/ram.ts'
 import type { ByteSource } from '../io/types.ts'
 import { IOResult, materialize } from '../io/types.ts'
 import { runWithRecording, runWithRevisions } from '../observe/context.ts'
@@ -36,6 +37,7 @@ import {
 import { resolveSafeguard } from '../commands/safeguard.ts'
 import { JobTable } from '../shell/job_table.ts'
 import { findSyntaxError, type ShellParser } from '../shell/parse.ts'
+import { ContentDriftError } from './snapshot/drift.ts'
 import { snapshot as writeSnapshot } from './snapshot/api.ts'
 import { checkDrift } from './snapshot/drift.ts'
 import { readFileBytes } from './snapshot/fs.ts'
@@ -56,7 +58,7 @@ import type { ExecuteFn } from './expand/node.ts'
 import type { DispatchFn } from './executor/cross_mount.ts'
 import type { ProvisionResult } from '../provision/types.ts'
 import { WorkspaceFS } from './fs.ts'
-import type { Mount } from './mount/mount.ts'
+import type { MountEntry } from './mount/mount.ts'
 import { MountRegistry } from './mount/registry.ts'
 import { handlePythonRepl } from './executor/python/handle.ts'
 import type { BridgeDispatchFn, MirageEntry } from './executor/python/mirage_bridge.ts'
@@ -64,6 +66,7 @@ import { PyodideRuntime } from './executor/python/runtime.ts'
 import type { PythonReplRunResult } from './executor/python/types.ts'
 import { makeAbortError } from './abort.ts'
 import { Dispatcher } from './dispatcher.ts'
+import { Namespace } from './mount/namespace.ts'
 import { provisionNode } from './node/provision_node.ts'
 import { runCommandTree } from './node/run_tree.ts'
 import { buildFilePrompt } from './file_prompt.ts'
@@ -181,6 +184,7 @@ export class Workspace {
   readonly jobTable = new JobTable()
   readonly agentId: string
   readonly cache: FileCache & Resource
+  readonly namespace: Namespace
   private readonly dispatcher: Dispatcher
   readonly observer: Observer
   readonly records: OpRecord[] = []
@@ -189,27 +193,18 @@ export class Workspace {
   private readonly workspaceId: string = `ws-${String(Date.now())}-${Math.random().toString(36).slice(2, 10)}`
   private readonly closers: (() => Promise<void>)[] = []
   private readonly pythonRuntime: PyodideRuntime
-  private fuseMountpointValue: string | null = null
-  private fuseOwnedInProcess = false
+  // True when the workspace auto-added an empty `/` anchor (no user `/` mount).
+  // The anchor is internal and is not forwarded into the Pyodide filesystem.
+  private syntheticRootAnchor = false
   // Drift check state populated by Workspace.load. Empty during normal
   // runs. Drained on first dispatch/execute after load (see
   // {@link runPendingDriftCheck}).
   protected driftPolicy: DriftPolicy = DriftPolicy.OFF
   protected driftCheckPending = false
-  protected pendingDrift: { mount: Mount; path: string; fingerprint: string }[] = []
+  protected pendingDrift: { mount: MountEntry; path: string; fingerprint: string }[] = []
 
-  get fuseMountpoint(): string | null {
-    return this.fuseMountpointValue
-  }
-
-  get ownsFuseMount(): boolean {
-    return this.fuseOwnedInProcess
-  }
-
-  setFuseMountpoint(path: string | null, options: { owned?: boolean } = {}): void {
-    this.fuseMountpointValue = path
-    this.fuseOwnedInProcess = path !== null && options.owned === true
-  }
+  // FUSE lives entirely in the node Workspace (FUSE needs the OS; the browser
+  // can't mount), so the core Workspace carries no FUSE state.
 
   constructor(resources: Record<string, Resource>, options: WorkspaceOptions = {}) {
     this.registry = new MountRegistry(resources, options.mode ?? MountMode.READ, {
@@ -236,14 +231,18 @@ export class Workspace {
     this.observer = new Observer(options.observe)
     this.registry.mount(HISTORY_PREFIX, new HistoryViewResource(this.observer), MountMode.READ)
     this.cache = options.cache ?? new RAMFileCacheStore({ limit: options.cacheLimit ?? '512MB' })
-    this.dispatcher = new Dispatcher(
-      this.registry,
-      this.cache,
-      this.opsRegistry,
-      (p) => this.resolve(p),
-      consistency,
-    )
-    const defaultMount = this.registry.setDefaultMount(this.cache)
+    this.registry.attachFileCache(this.cache)
+    this.namespace = new Namespace(this.registry, (p) => this.resolve(p))
+    this.dispatcher = new Dispatcher(this.namespace, this.cache, this.opsRegistry, consistency)
+    // The file cache is a hidden store (attached above), never a mount. Arg-less
+    // commands and root listing resolve against a neutral root anchor: reuse the
+    // user's `/` mount if they gave one, else add a plain empty RAM mount at `/`.
+    // A synthetic anchor is mirage-internal and must NOT be forwarded to Pyodide,
+    // whose own `/` filesystem (holding the Python stdlib) would be hijacked.
+    if (this.registry.rootMount === null) {
+      this.registry.mount('/', new RAMResource(), options.mode ?? MountMode.READ)
+      this.syntheticRootAnchor = true
+    }
     for (const resource of [...this.registry.allMounts().map((m) => m.resource), this.cache]) {
       const resourceOps = resource.ops?.()
       if (resourceOps === undefined) continue
@@ -251,7 +250,7 @@ export class Workspace {
         this.opsRegistry.register(op)
       }
     }
-    for (const mount of [...this.registry.allMounts(), defaultMount]) {
+    for (const mount of this.registry.allMounts()) {
       const cmds = mount.resource.commands?.()
       if (cmds !== undefined) {
         for (const cmd of cmds) {
@@ -273,9 +272,17 @@ export class Workspace {
         mount.commandSafeguards.set(cmd, sg)
       }
     }
-    this.fs = new WorkspaceFS((path) => this.resolve(path), this.opsRegistry)
+    this.fs = new WorkspaceFS(
+      (path) => this.resolve(path),
+      this.opsRegistry,
+      async (rec) => {
+        this.records.push(rec)
+        await this.observer.logOp(rec, this.agentId, this.sessionManager.defaultId)
+      },
+    )
     for (const m of this.registry.allMounts()) {
       if (m.prefix === HISTORY_PREFIX || m.prefix === HISTORY_PREFIX + '/') continue
+      if (this.syntheticRootAnchor && m.prefix === '/') continue
       void this.forwardAddMountToPython(m.prefix)
     }
   }
@@ -366,15 +373,15 @@ export class Workspace {
   /**
    * Mount prefixes a session is always allowed to touch.
    *
-   * The cache mount (where text-processing commands like `wc` without a
+   * The root mount (where text-processing commands like `wc` without a
    * path argument resolve), the device mount, and the history view are
    * infrastructure: they hold no user credentials, and rejecting them
    * would break common shell idioms or the history builtin.
    */
   private infrastructureMountPrefixes(): Set<string> {
     const prefixes = new Set<string>(['/dev', HISTORY_PREFIX])
-    const def = this.registry.defaultMount
-    if (def !== null) prefixes.add('/' + stripSlash(def.prefix))
+    const root = this.registry.rootMount
+    if (root !== null) prefixes.add('/' + stripSlash(root.prefix))
     return prefixes
   }
 
@@ -394,11 +401,11 @@ export class Workspace {
     return this.sessionManager.closeAll()
   }
 
-  mounts(): readonly Mount[] {
+  mounts(): readonly MountEntry[] {
     return this.registry.allMounts()
   }
 
-  mount(prefix: string): Mount | null {
+  mount(prefix: string): MountEntry | null {
     return this.registry.mountFor(prefix)
   }
 
@@ -406,7 +413,7 @@ export class Workspace {
    * Add a mount to a running workspace. Registers the resource's ops globally
    * on this workspace's OpsRegistry so dispatch can find them.
    */
-  addMount(prefix: string, resource: Resource, mode: MountMode = MountMode.READ): Mount {
+  addMount(prefix: string, resource: Resource, mode: MountMode = MountMode.READ): MountEntry {
     if (this.closed) throw new Error('Workspace is closed')
     const m = this.registry.mount(prefix, resource, mode)
     this.opsRegistry.registerResource(resource)
@@ -439,8 +446,8 @@ export class Workspace {
     if (this.closed) throw new Error('Workspace is closed')
     const stripped = stripSlash(prefix)
     const norm = stripped ? `/${stripped}/` : '/'
-    if (norm === '/' || norm === '/_default/') {
-      throw new Error(`cannot unmount cache root: ${prefix}`)
+    if (norm === '/') {
+      throw new Error(`cannot unmount root: ${prefix}`)
     }
     if (norm === '/dev/') {
       throw new Error(`cannot unmount reserved prefix: /dev/`)
@@ -468,10 +475,14 @@ export class Workspace {
     }
   }
 
-  get cacheMount(): Mount {
-    const m = this.registry.defaultMount
-    if (m === null) throw new Error('cache mount is initialized in constructor')
-    return m
+  /**
+   * True when the `/` mount is an empty anchor the workspace added itself
+   * (no user `/` mount). Consumers that distinguish "genuinely mounted" from
+   * "merely caught by the root anchor" (e.g. the node fs monkey-patch) check
+   * this before treating a root-matched path as backed by a real mount.
+   */
+  get syntheticRoot(): boolean {
+    return this.syntheticRootAnchor
   }
 
   get maxDrainBytes(): number | null {
@@ -480,6 +491,30 @@ export class Workspace {
 
   set maxDrainBytes(value: number | null) {
     this.cache.maxDrainBytes = value
+  }
+
+  /** Records that hit a remote resource (not cache). */
+  get networkRecords(): OpRecord[] {
+    return this.records.filter((r) => !r.isCache)
+  }
+
+  /** Total bytes transferred over the network. */
+  get networkBytes(): number {
+    let total = 0
+    for (const r of this.records) if (!r.isCache) total += r.bytes
+    return total
+  }
+
+  /** Records served from in-memory cache. */
+  get cacheRecords(): OpRecord[] {
+    return this.records.filter((r) => r.isCache)
+  }
+
+  /** Total bytes served from cache. */
+  get cacheBytes(): number {
+    let total = 0
+    for (const r of this.records) if (r.isCache) total += r.bytes
+    return total
   }
 
   get filePrompt(): string {
@@ -656,19 +691,20 @@ export class Workspace {
     const root = parser.parse(command)
     const rootNode = root as unknown as TSNodeLike
     const session = this.sessionManager.get(this.sessionManager.defaultId)
-    const executeFn: ExecuteFn = async (cmd) => {
-      const res = await this.execute(cmd)
-      return new IOResult({
-        stdout: res.stdout,
-        stderr: res.stderr,
-        exitCode: res.exitCode,
-      })
-    }
+    // A dry run must never execute: a command substitution with side
+    // effects ($(tee ...)) would otherwise run while "estimating".
+    // Substitutions expand to empty, so affected words degrade the
+    // plan to honest UNKNOWN instead of resolving via execution.
+    const executeFn: ExecuteFn = () => Promise.resolve(new IOResult())
     const provName = command.trim().split(/\s+/)[0] ?? ''
     const provResolved = provName !== '' ? resolveSafeguard(provName) : null
     const provTimeout = provResolved !== null ? provResolved.timeoutSeconds : null
     return runWithTimeout(
-      provisionNode({ registry: this.registry, executeFn }, rootNode, session),
+      provisionNode(
+        { registry: this.registry, executeFn, namespace: this.namespace },
+        rootNode,
+        session,
+      ),
       provTimeout,
       provName !== '' ? provName : '?',
     )
@@ -737,6 +773,7 @@ export class Workspace {
     const deps = {
       dispatch,
       registry: this.registry,
+      namespace: this.namespace,
       jobTable: this.jobTable,
       executeFn,
       agentId: callAgentId,
@@ -776,13 +813,22 @@ export class Workspace {
         targetSession.lastExitCode = 124
         return new ExecuteResult(new Uint8Array(), msg, 124)
       }
-      throw err
+      // Abort (cancellation) and content drift are control-flow signals that
+      // must propagate, mirroring the Python workspace. Any other execution
+      // failure (e.g. an unsupported shell construct like the arithmetic
+      // command `(( ... ))`) is surfaced as a failed command rather than
+      // crashing the caller.
+      if (err instanceof ContentDriftError) throw err
+      if (err instanceof DOMException && err.name === 'AbortError') throw err
+      const msg = new TextEncoder().encode(`${err instanceof Error ? err.message : String(err)}\n`)
+      targetSession.lastExitCode = 1
+      return new ExecuteResult(new Uint8Array(), msg, 1)
     }
     const [[materialized, io], opRecords] = execResult
     targetSession.lastExitCode = io.exitCode
     let stdoutBytes: Uint8Array
     try {
-      await this.dispatcher.applyIo(io)
+      await this.dispatcher.applyIo(io, opRecords)
       stdoutBytes = materialized === null ? new Uint8Array() : await materialize(materialized)
     } catch (err) {
       // Lazy reads can fail while draining (e.g. head/tail that open the

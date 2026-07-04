@@ -36,7 +36,7 @@ async def cat_provision(
 ) -> ProvisionResult:
     return await file_read_provision(
         accessor, paths,
-        "cat " + " ".join(p.original if isinstance(p, PathSpec) else p
+        "cat " + " ".join(p.display if isinstance(p, PathSpec) else p
                           for p in paths))
 
 
@@ -53,7 +53,7 @@ async def cat(
     if paths:
         paths = await resolve_glob(accessor, paths, index)
         reads = {
-            p.strip_prefix: await mem0_read(accessor, p, index)
+            p.mount_path: await mem0_read(accessor, p, index)
             for p in paths
         }
         merged = b"".join(reads.values())

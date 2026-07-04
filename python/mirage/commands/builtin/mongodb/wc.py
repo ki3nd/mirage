@@ -30,23 +30,13 @@ from mirage.core.mongodb.read import read as mongodb_read
 from mirage.core.mongodb.scope import detect_scope
 from mirage.core.mongodb.types import ScopeLevel
 from mirage.io.types import ByteSource, IOResult
-from mirage.provision.types import ProvisionResult
 from mirage.types import PathSpec
 
 
-async def wc_provision(
-    accessor: MongoDBAccessor,
-    paths: list[PathSpec],
-    *texts: str,
-    **_extra: object,
-) -> ProvisionResult:
-    return await file_read_provision(
-        accessor, paths,
-        "wc " + " ".join(p.original if isinstance(p, PathSpec) else p
-                         for p in paths))
-
-
-@command("wc", resource="mongodb", spec=SPECS["wc"], provision=wc_provision)
+@command("wc",
+         resource="mongodb",
+         spec=SPECS["wc"],
+         provision=file_read_provision)
 async def wc(
     accessor: MongoDBAccessor,
     paths: list[PathSpec],
@@ -75,7 +65,7 @@ async def wc(
             for p, scope in zip(paths, scopes):
                 count = await count_documents(accessor.client, scope.database,
                                               scope.name)
-                rows.append((WCCounts(lines=count), p.original))
+                rows.append((WCCounts(lines=count), p.virtual))
                 total += count
             if len(paths) > 1:
                 rows.append((WCCounts(lines=total), "total"))
@@ -85,7 +75,7 @@ async def wc(
         for p in paths:
             data = await mongodb_read(accessor, p, index)
             counts = await generic_wc(data)
-            rows.append((counts, p.original))
+            rows.append((counts, p.virtual))
             totals.merge(counts)
         if len(paths) > 1:
             rows.append((totals, "total"))

@@ -46,15 +46,11 @@ async def read_stream(
         chunk_size (int): Size of each chunk in bytes.
     """
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
-    virtual = path.original if isinstance(path, PathSpec) else path
-    if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.original
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
+    path = path.mount_path
     pinned_revision = revision_for(virtual)
     config = accessor.config
     rec = record_stream("read", path, "s3")
@@ -90,10 +86,12 @@ async def range_read(accessor: S3Accessor, path: PathSpec, start: int,
         end (int): End byte offset (exclusive).
     """
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
-    virtual = path.original if isinstance(path, PathSpec) else path
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual if isinstance(path, PathSpec) else path
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     config = accessor.config
     start_ms = int(time.monotonic() * 1000)
     session = async_session(config)

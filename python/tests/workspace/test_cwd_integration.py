@@ -77,17 +77,25 @@ async def test_cd_slash_and_pwd():
 
 
 @pytest.mark.asyncio
-async def test_cd_tilde_and_pwd():
+async def test_cd_tilde_unset_home_errors():
     ws = _make_ws()
-    r = await ws.execute("cd /ram/subdir && cd ~ && pwd")
-    assert (await r.stdout_str()).strip() == "/"
+    r = await ws.execute("cd /ram/subdir && cd ~")
+    assert r.exit_code != 0
 
 
 @pytest.mark.asyncio
-async def test_cd_no_args_and_pwd():
+async def test_cd_no_args_unset_home_errors():
     ws = _make_ws()
-    r = await ws.execute("cd /ram/subdir && cd && pwd")
-    assert (await r.stdout_str()).strip() == "/"
+    r = await ws.execute("cd /ram/subdir && cd")
+    assert r.exit_code == 1
+    assert "HOME not set" in await r.stderr_str()
+
+
+@pytest.mark.asyncio
+async def test_cd_no_args_with_home():
+    ws = _make_ws()
+    r = await ws.execute("export HOME=/ram/subdir && cd /ram && cd && pwd")
+    assert (await r.stdout_str()).strip() == "/ram/subdir"
 
 
 @pytest.mark.asyncio
@@ -158,3 +166,180 @@ async def test_cd_backslash_escaped_and_pwd():
     ws = _make_ws_special_chars()
     r = await ws.execute(r"cd /ram/Zecheng\'s\ Server && pwd")
     assert (await r.stdout_str()).strip() == "/ram/Zecheng's Server"
+
+
+@pytest.mark.asyncio
+async def test_pwd_default_root():
+    ws = _make_ws()
+    r = await ws.execute("pwd")
+    assert (await r.stdout_str()).strip() == "/"
+
+
+@pytest.mark.asyncio
+async def test_echo_pwd_tracks_cwd():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram/subdir && echo $PWD")
+    assert (await r.stdout_str()).strip() == "/ram/subdir"
+
+
+@pytest.mark.asyncio
+async def test_echo_home_unset_is_empty():
+    ws = _make_ws()
+    r = await ws.execute('echo "[$HOME]"')
+    assert (await r.stdout_str()).strip() == "[]"
+
+
+@pytest.mark.asyncio
+async def test_cd_updates_oldpwd():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram && cd /ram/subdir && echo $OLDPWD")
+    assert (await r.stdout_str()).strip() == "/ram"
+
+
+@pytest.mark.asyncio
+async def test_cd_dash_returns_and_prints():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram && cd /ram/subdir && cd -")
+    out = await r.stdout_str()
+    assert out.strip() == "/ram"
+
+
+@pytest.mark.asyncio
+async def test_cd_dash_swaps_cwd():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram && cd /ram/subdir && cd - > /dev/null && pwd"
+                         )
+    assert (await r.stdout_str()).strip() == "/ram"
+
+
+@pytest.mark.asyncio
+async def test_cd_dash_without_oldpwd_errors():
+    ws = _make_ws()
+    r = await ws.execute("cd -")
+    assert r.exit_code == 1
+    assert "OLDPWD not set" in await r.stderr_str()
+
+
+@pytest.mark.asyncio
+async def test_custom_home_cd_tilde():
+    ws = _make_ws()
+    r = await ws.execute("export HOME=/ram/subdir && cd ~ && pwd")
+    assert (await r.stdout_str()).strip() == "/ram/subdir"
+
+
+@pytest.mark.asyncio
+async def test_custom_home_echo():
+    ws = _make_ws()
+    r = await ws.execute("export HOME=/ram/subdir && echo $HOME")
+    assert (await r.stdout_str()).strip() == "/ram/subdir"
+
+
+@pytest.mark.asyncio
+async def test_tilde_expands_for_commands():
+    ws = _make_ws()
+    r = await ws.execute("export HOME=/ram/subdir && cat ~/file.txt")
+    assert (await r.stdout_str()) == "hello"
+
+
+@pytest.mark.asyncio
+async def test_quoted_tilde_not_expanded():
+    ws = _make_ws()
+    r = await ws.execute('export HOME=/ram/subdir && cat "~/file.txt"')
+    assert r.exit_code != 0
+
+
+@pytest.mark.asyncio
+async def test_subshell_does_not_leak_oldpwd():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram && (cd /ram/subdir) && echo $OLDPWD")
+    assert (await r.stdout_str()).strip() == "/"
+
+
+@pytest.mark.asyncio
+async def test_subshell_does_not_leak_cwd():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram && (cd /ram/subdir) && pwd")
+    assert (await r.stdout_str()).strip() == "/ram"
+
+
+@pytest.mark.asyncio
+async def test_cd_double_slash_collapses():
+    ws = _make_ws()
+    r = await ws.execute("cd //ram && pwd")
+    assert (await r.stdout_str()).strip() == "/ram"
+
+
+@pytest.mark.asyncio
+async def test_cd_triple_slash_collapses():
+    ws = _make_ws()
+    r = await ws.execute("cd ///ram/subdir && pwd")
+    assert (await r.stdout_str()).strip() == "/ram/subdir"
+
+
+@pytest.mark.asyncio
+async def test_cd_physical_flag():
+    ws = _make_ws()
+    r = await ws.execute("cd -P /ram/subdir && pwd")
+    assert (await r.stdout_str()).strip() == "/ram/subdir"
+
+
+@pytest.mark.asyncio
+async def test_cd_logical_flag():
+    ws = _make_ws()
+    r = await ws.execute("cd -L /ram && pwd")
+    assert (await r.stdout_str()).strip() == "/ram"
+
+
+@pytest.mark.asyncio
+async def test_cd_clustered_flags():
+    ws = _make_ws()
+    r = await ws.execute("cd -LP /ram && pwd")
+    assert (await r.stdout_str()).strip() == "/ram"
+
+
+@pytest.mark.asyncio
+async def test_cd_double_dash_terminates_options():
+    ws = _make_ws()
+    r = await ws.execute("cd -- /ram && pwd")
+    assert (await r.stdout_str()).strip() == "/ram"
+
+
+@pytest.mark.asyncio
+async def test_cd_invalid_option_exit2():
+    ws = _make_ws()
+    r = await ws.execute("cd -x /ram")
+    assert r.exit_code == 2
+    assert "invalid option" in await r.stderr_str()
+
+
+@pytest.mark.asyncio
+async def test_cd_too_many_arguments():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram /ram/subdir")
+    assert r.exit_code == 1
+    assert "too many arguments" in await r.stderr_str()
+
+
+@pytest.mark.asyncio
+async def test_cd_quoted_tilde_is_literal():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram && cd '~'")
+    assert r.exit_code != 0
+
+
+@pytest.mark.asyncio
+async def test_cd_cdpath_search_and_print():
+    ws = _make_ws()
+    r = await ws.execute("export CDPATH=/ram && cd subdir && pwd")
+    lines = (await r.stdout_str()).splitlines()
+    assert lines[-1] == "/ram/subdir"
+    assert "/ram/subdir" in lines[:-1]
+
+
+@pytest.mark.asyncio
+async def test_cd_cdpath_empty_entry_is_cwd_no_print():
+    ws = _make_ws()
+    r = await ws.execute("cd /ram && export CDPATH=:/ram && cd subdir && pwd")
+    lines = (await r.stdout_str()).splitlines()
+    assert lines[-1] == "/ram/subdir"
+    assert lines == ["/ram/subdir"]

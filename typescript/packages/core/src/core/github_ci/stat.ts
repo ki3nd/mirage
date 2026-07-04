@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { GitHubCIAccessor } from '../../accessor/github_ci.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { FileStat, FileType, PathSpec } from '../../types.ts'
@@ -36,10 +37,10 @@ async function lookupWithFallback(
     await coreReaddir(
       accessor,
       new PathSpec({
-        original: parentVirtual,
+        virtual: parentVirtual,
         directory: parentVirtual,
         resolved: false,
-        prefix,
+        resourcePath: mountKey(parentVirtual, prefix),
       }),
       index,
     )
@@ -50,8 +51,8 @@ async function lookupWithFallback(
 }
 
 function stripPrefix(path: PathSpec): string {
-  const prefix = path.prefix
-  let p = path.original
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  let p = path.virtual
   if (prefix !== '' && p.startsWith(prefix)) {
     p = p.slice(prefix.length) || '/'
   }
@@ -64,7 +65,7 @@ export async function stat(
   index?: IndexCacheStore,
 ): Promise<FileStat> {
   void accessor
-  const prefix = path.prefix
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
   const stripped = stripPrefix(path)
   const key = stripSlash(stripped)
 
@@ -80,23 +81,25 @@ export async function stat(
   }
 
   if (parts.length === 2 && parts[0] === 'workflows' && parts[1]?.endsWith('.json') === true) {
-    if (index === undefined) throw enoent(path.original)
+    if (index === undefined) throw enoent(path.virtual)
     const lookup = await lookupWithFallback(accessor, virtualKey, prefix, index)
-    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.original)
+    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.virtual)
     return new FileStat({
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       type: FileType.JSON,
+      modified: lookup.entry.remoteTime,
       extra: { workflow_id: lookup.entry.id },
     })
   }
 
   if (parts.length === 2 && parts[0] === 'runs') {
-    if (index === undefined) throw enoent(path.original)
+    if (index === undefined) throw enoent(path.virtual)
     const lookup = await lookupWithFallback(accessor, virtualKey, prefix, index)
-    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.original)
+    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.virtual)
     return new FileStat({
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       type: FileType.DIRECTORY,
+      modified: lookup.entry.remoteTime,
       extra: { run_id: lookup.entry.id },
     })
   }
@@ -124,12 +127,13 @@ export async function stat(
     parts[2] === 'jobs' &&
     parts[3]?.endsWith('.json') === true
   ) {
-    if (index === undefined) throw enoent(path.original)
+    if (index === undefined) throw enoent(path.virtual)
     const lookup = await lookupWithFallback(accessor, virtualKey, prefix, index)
-    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.original)
+    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.virtual)
     return new FileStat({
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       type: FileType.JSON,
+      modified: lookup.entry.remoteTime,
       extra: { job_id: lookup.entry.id },
     })
   }
@@ -140,27 +144,29 @@ export async function stat(
     parts[2] === 'jobs' &&
     parts[3]?.endsWith('.log') === true
   ) {
-    if (index === undefined) throw enoent(path.original)
+    if (index === undefined) throw enoent(path.virtual)
     const lookup = await lookupWithFallback(accessor, virtualKey, prefix, index)
-    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.original)
+    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.virtual)
     return new FileStat({
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       type: FileType.TEXT,
+      modified: lookup.entry.remoteTime,
       extra: { job_id: lookup.entry.id },
     })
   }
 
   if (parts.length === 4 && parts[0] === 'runs' && parts[2] === 'artifacts') {
-    if (index === undefined) throw enoent(path.original)
+    if (index === undefined) throw enoent(path.virtual)
     const lookup = await lookupWithFallback(accessor, virtualKey, prefix, index)
-    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.original)
+    if (lookup.entry === undefined || lookup.entry === null) throw enoent(path.virtual)
     return new FileStat({
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       type: FileType.ZIP,
       size: lookup.entry.size,
+      modified: lookup.entry.remoteTime,
       extra: { artifact_id: lookup.entry.id },
     })
   }
 
-  throw enoent(path.original)
+  throw enoent(path.virtual)
 }

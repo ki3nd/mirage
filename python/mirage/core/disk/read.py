@@ -34,15 +34,12 @@ async def read_bytes(accessor: DiskAccessor,
                      path: PathSpec,
                      index: IndexCacheStore = None) -> bytes:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
     if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.original
-    virtual = path
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
+        path = path.mount_path
     root = accessor.root
     start_ms = int(time.monotonic() * 1000)
     p = _resolve(root, path)

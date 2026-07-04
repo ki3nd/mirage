@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountPrefixOf } from '../../../utils/key_prefix.ts'
 import type { DiscordAccessor } from '../../../accessor/discord.ts'
 import type { IndexCacheStore } from '../../../cache/index/store.ts'
 import { DiscordApiError } from '../../../core/discord/_client.ts'
@@ -26,6 +27,7 @@ import { IOResult } from '../../../io/types.ts'
 import { type FileStat, type PathSpec, ResourceName } from '../../../types.ts'
 import { command, type CommandFnResult, type CommandOpts } from '../../config.ts'
 import { specOf } from '../../spec/builtins.ts'
+import { patternArg } from '../grep_helper.ts'
 import { rgGeneric } from '../generic/rg.ts'
 
 const ENC = new TextEncoder()
@@ -44,8 +46,8 @@ async function rgCommand(
   texts: string[],
   opts: CommandOpts,
 ): Promise<CommandFnResult> {
-  const [exprText] = texts
-  if (exprText === undefined) {
+  const pattern = patternArg(texts, opts.flags)
+  if (pattern === null) {
     return [
       null,
       new IOResult({ exitCode: 2, stderr: ENC.encode('rg: usage: rg [flags] pattern [path]\n') }),
@@ -54,21 +56,26 @@ async function rgCommand(
   const maxCount = typeof opts.flags.m === 'string' ? Number.parseInt(opts.flags.m, 10) : null
 
   const pushdownWarnings: string[] = []
-  if (paths.length > 0) {
+  if (paths.length > 0 && !pattern.includes('\n')) {
     const firstPath = paths[0]
     if (firstPath !== undefined) {
       const scope = detectScope(firstPath)
       if (scope.useNative && scope.guildId !== undefined) {
         try {
           const count = maxCount ?? 100
-          const raw = await searchGuild(accessor, scope.guildId, exprText, scope.channelId, count)
+          const raw = await searchGuild(accessor, scope.guildId, pattern, scope.channelId, count)
           const channelMap = new Map<string, string>()
           if (scope.channelId === undefined) {
             for (const ch of await listChannels(accessor, scope.guildId)) {
               if (ch.name !== undefined) channelMap.set(ch.id, ch.name)
             }
           }
-          const lines = formatGrepResults(raw, scope, firstPath.prefix, channelMap)
+          const lines = formatGrepResults(
+            raw,
+            scope,
+            mountPrefixOf(firstPath.virtual, firstPath.resourcePath),
+            channelMap,
+          )
           if (lines.length === 0) return [new Uint8Array(0), new IOResult({ exitCode: 1 })]
           return [ENC.encode(lines.join('\n') + '\n'), new IOResult()]
         } catch (err) {

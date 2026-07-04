@@ -12,29 +12,28 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import type { PostgresAccessor } from '../../../accessor/postgres.ts'
+import { ResourceName } from '../../../types.ts'
 import type { RegisteredCommand } from '../../config.ts'
-import { POSTGRES_CAT } from './cat.ts'
+import { makeGenericCommands } from '../generic_bind/index.ts'
 import { POSTGRES_FIND } from './find.ts'
 import { POSTGRES_GREP } from './grep.ts'
 import { POSTGRES_HEAD } from './head.ts'
-import { POSTGRES_JQ } from './jq.ts'
-import { POSTGRES_LS } from './ls.ts'
+import { POSTGRES_CMD_OPS } from './ops.ts'
 import { POSTGRES_RG } from './rg.ts'
-import { POSTGRES_STAT } from './stat.ts'
 import { POSTGRES_TAIL } from './tail.ts'
-import { POSTGRES_TREE } from './tree.ts'
 import { POSTGRES_WC } from './wc.ts'
 
+const POSTGRES_OVERRIDES = new Set(['find', 'grep', 'head', 'rg', 'tail', 'wc'])
+
 export const POSTGRES_COMMANDS: readonly RegisteredCommand[] = [
-  ...POSTGRES_LS,
-  ...POSTGRES_STAT,
-  ...POSTGRES_CAT,
+  ...makeGenericCommands<PostgresAccessor>(ResourceName.POSTGRES, POSTGRES_CMD_OPS, {
+    overrides: POSTGRES_OVERRIDES,
+  }),
+  ...POSTGRES_FIND,
+  ...POSTGRES_GREP,
   ...POSTGRES_HEAD,
+  ...POSTGRES_RG,
   ...POSTGRES_TAIL,
   ...POSTGRES_WC,
-  ...POSTGRES_FIND,
-  ...POSTGRES_TREE,
-  ...POSTGRES_JQ,
-  ...POSTGRES_GREP,
-  ...POSTGRES_RG,
 ]

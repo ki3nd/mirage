@@ -69,6 +69,17 @@ beta
 2
 === find_view_by_name ===
 /.bash_history
+=== sym_hist_setup ===
+
+=== sym_hist_cat ===
+view
+=== sym_hist_shows_typed ===
+19  echo view > /data/ht.txt && ln -s /data/ht.txt /data/hlink
+20  cat /data/hlink
+=== sym_hist_file_has_link_path ===
+1
+=== sym_hist_no_target_leak ===
+0
 === append_rejected ===
 nonzero_exit=True
 === sessions_path_gone ===
@@ -81,6 +92,12 @@ nonzero_exit=True
 nonzero_exit=True
 === history_too_many_args ===
 nonzero_exit=True
+=== prov_probe_cat ===
+net=1241 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_probe_grep ===
+net=1241 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_probe_ls ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=exact
 === observer_event_types ===
 clear,command,delete,op
 === observer_command_events ===
@@ -96,5 +113,5 @@ ops_have_source=True
 s2_after_clear=['history', 'synthetic entry one', 'history -s synthetic entry one', 'history 3', 'history -d 1', 'history 3']
 default_first=echo marker-one
 === observer_not_mounted ===
-mounts=['/.bash_history/', '/data/', '/dev/']
+mounts=['/', '/.bash_history/', '/data/', '/dev/']
 recorder_mounted=False

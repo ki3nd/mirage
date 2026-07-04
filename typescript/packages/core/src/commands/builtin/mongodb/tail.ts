@@ -18,14 +18,20 @@ import { findDocuments } from '../../../core/mongodb/_client.ts'
 import { resolveGlob } from '../../../core/mongodb/glob.ts'
 import { streamAny } from '../../../core/mongodb/read.ts'
 import { detectScope } from '../../../core/mongodb/scope.ts'
-import { applyElision, elisionPaths, stringifyDoc } from '../../../core/mongodb/stream.ts'
+import {
+  applyElision,
+  elisionPaths,
+  stringifyDoc,
+  watchStream,
+} from '../../../core/mongodb/stream.ts'
 import { ScopeLevel } from '../../../core/mongodb/types.ts'
+import { IOResult } from '../../../io/types.ts'
 import { type PathSpec, ResourceName } from '../../../types.ts'
 import { command, type CommandFnResult, type CommandOpts } from '../../config.ts'
 import { specOf } from '../../spec/builtins.ts'
 import { tailGeneric } from '../generic/tail.ts'
 import { parseN } from '../tail_helper.ts'
-import { fileReadProvision } from './_provision.ts'
+import { headTailProvision } from './_provision.ts'
 
 const ENC = new TextEncoder()
 
@@ -74,6 +80,15 @@ async function tailCommand(
 ): Promise<CommandFnResult> {
   const resolved =
     paths.length > 0 ? await resolveGlob(accessor, paths, opts.index ?? undefined) : []
+  const first = resolved[0]
+  if (
+    opts.flags.f === true &&
+    resolved.length === 1 &&
+    first !== undefined &&
+    detectScope(first).level === ScopeLevel.DOCUMENTS
+  ) {
+    return [watchStream(accessor, first), new IOResult()]
+  }
   const nRaw = typeof opts.flags.n === 'string' ? opts.flags.n : null
   const [lines, plusMode] = parseN(nRaw)
   const pushdown = typeof opts.flags.c !== 'string' && !plusMode && lines > 0
@@ -87,5 +102,5 @@ export const MONGODB_TAIL = command({
   resource: ResourceName.MONGODB,
   spec: specOf('tail'),
   fn: tailCommand,
-  provision: fileReadProvision,
+  provision: headTailProvision,
 })

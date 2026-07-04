@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../utils/key_prefix.ts'
 import { type Accessor, NOOPAccessor } from '../../accessor/base.ts'
 import type {
   CommandDispatch,
@@ -28,6 +29,8 @@ import { applyOpSafeguard, runWithTimeout } from '../../commands/builtin/utils/s
 import type { CommandSpec } from '../../commands/spec/types.ts'
 import type { ByteSource } from '../../io/types.ts'
 import { IOResult } from '../../io/types.ts'
+import { runWithCacheManager } from '../../cache/context.ts'
+import type { CacheManager } from '../../cache/manager.ts'
 import { runWithRevisions, setVirtualPrefix } from '../../observe/context.ts'
 import type { RegisteredOp } from '../../ops/registry.ts'
 import type { Resource } from '../../resource/base.ts'
@@ -61,7 +64,7 @@ export interface MountInit {
   consistency?: ConsistencyPolicy
 }
 
-export class Mount {
+export class MountEntry {
   readonly prefix: string
   readonly resource: Resource
   readonly mode: MountMode
@@ -75,6 +78,8 @@ export class Mount {
    * runs; populated only by the snapshot loader.
    */
   readonly revisions = new Map<string, string>()
+
+  cacheManager: CacheManager | null = null
 
   private readonly cmds = new Map<CmdKey, RegisteredCommand>()
   private readonly generalCmds = new Map<string, RegisteredCommand>()
@@ -328,7 +333,7 @@ export class Mount {
     } = {},
   ): Promise<[ByteSource | null, IOResult]> {
     const extension =
-      paths.length > 0 && paths[0] !== undefined ? getExtension(paths[0].original) : null
+      paths.length > 0 && paths[0] !== undefined ? getExtension(paths[0].virtual) : null
 
     const handlers = this.resolveCascade(cmdName, extension, this.cmds, this.generalCmds)
     if (handlers.length === 0) {
@@ -349,11 +354,12 @@ export class Mount {
     const prefixedPaths = paths.map(
       (p) =>
         new PathSpec({
-          original: p.original,
+          virtual: p.virtual,
           directory: p.directory,
           pattern: p.pattern,
           resolved: p.resolved,
-          prefix: mountPrefix,
+          resourcePath: mountKey(p.virtual, mountPrefix),
+          rawPath: p.rawPath,
         }),
     )
 
@@ -378,35 +384,39 @@ export class Mount {
 
     setVirtualPrefix(mountPrefix)
     try {
-      return await runWithRevisions(
-        this.revisions.size > 0 ? this.revisions : null,
-        async (): Promise<[ByteSource | null, IOResult]> => {
-          for (const cmd of handlers) {
-            if (cmd.write && this.mode === MountMode.READ) {
-              return [
-                null,
-                new IOResult({
-                  exitCode: 1,
-                  stderr: new TextEncoder().encode(`${cmdName}: read-only mount at ${this.prefix}`),
-                }),
-              ]
+      return await runWithCacheManager(this.cacheManager, () =>
+        runWithRevisions(
+          this.revisions.size > 0 ? this.revisions : null,
+          async (): Promise<[ByteSource | null, IOResult]> => {
+            for (const cmd of handlers) {
+              if (cmd.write && this.mode === MountMode.READ) {
+                return [
+                  null,
+                  new IOResult({
+                    exitCode: 1,
+                    stderr: new TextEncoder().encode(
+                      `${cmdName}: read-only mount at ${this.prefix}`,
+                    ),
+                  }),
+                ]
+              }
+              const result = await cmd.fn(accessor, expandedPaths, texts, cmdOpts)
+              if (result !== null) {
+                // TODO: hand back a finalization context separately
+                // instead of stamping policy onto io.safeguard.
+                result[1].safeguard = resolveSafeguard(
+                  cmdName,
+                  cmd.safeguard,
+                  opts.safeguardOverride !== undefined
+                    ? opts.safeguardOverride
+                    : (this.commandSafeguards.get(cmdName) ?? null),
+                )
+                return result
+              }
             }
-            const result = await cmd.fn(accessor, expandedPaths, texts, cmdOpts)
-            if (result !== null) {
-              // TODO: hand back a finalization context separately
-              // instead of stamping policy onto io.safeguard.
-              result[1].safeguard = resolveSafeguard(
-                cmdName,
-                cmd.safeguard,
-                opts.safeguardOverride !== undefined
-                  ? opts.safeguardOverride
-                  : (this.commandSafeguards.get(cmdName) ?? null),
-              )
-              return result
-            }
-          }
-          return [null, new IOResult()]
-        },
+            return [null, new IOResult()]
+          },
+        ),
       )
     } finally {
       setVirtualPrefix('')
@@ -430,9 +440,9 @@ export class Mount {
     const mountPrefix = rstripSlash(this.prefix)
     const lastSlash = path.lastIndexOf('/')
     const scope = new PathSpec({
-      original: path,
+      virtual: path,
       directory: lastSlash > 0 ? path.slice(0, lastSlash + 1) : '/',
-      prefix: mountPrefix,
+      resourcePath: mountKey(path, mountPrefix),
     })
     const effectiveKwargs: OpKwargs = {
       ...kwargs,

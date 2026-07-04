@@ -18,10 +18,10 @@ import pytest
 
 from mirage.accessor.slack import SlackAccessor
 from mirage.cache.index import RAMIndexCacheStore
-from mirage.cache.index.config import IndexConfig
 from mirage.core.slack.readdir import _fetch_day, _latest_message_ts, readdir
 from mirage.resource.slack.config import SlackConfig
-from mirage.types import IndexType, PathSpec
+from mirage.types import PathSpec
+from mirage.utils.key_prefix import mount_key
 
 
 @pytest.fixture
@@ -31,8 +31,7 @@ def config():
 
 @pytest.fixture
 def index():
-    return RAMIndexCacheStore.from_config(
-        IndexConfig(type=IndexType.RAM, ttl=600))
+    return RAMIndexCacheStore(ttl=600)
 
 
 @pytest.mark.asyncio
@@ -112,17 +111,18 @@ async def test_readdir_channel_inaccessible_yields_no_dates(config, index):
          patch("mirage.core.slack.readdir.slack_get", new=fake_get):
         await readdir(
             accessor,
-            PathSpec(original="/slack/channels",
-                     directory="/slack/channels/",
-                     prefix="/slack"),
+            PathSpec(resource_path=mount_key("/slack/channels", "/slack"),
+                     virtual="/slack/channels",
+                     directory="/slack/channels/"),
             index,
         )
         dates = await readdir(
             accessor,
             PathSpec(
-                original="/slack/channels/private__C_INACCESSIBLE",
+                resource_path=mount_key(
+                    "/slack/channels/private__C_INACCESSIBLE", "/slack"),
+                virtual="/slack/channels/private__C_INACCESSIBLE",
                 directory="/slack/channels/private__C_INACCESSIBLE/",
-                prefix="/slack",
             ),
             index,
         )

@@ -36,6 +36,7 @@ from mirage.core.slack.search import (search_available, search_files,
 from mirage.core.slack.stat import stat as _stat
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
+from mirage.utils.key_prefix import mount_prefix_of
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +57,15 @@ async def rg(
         raise UsageError("rg: usage: rg [flags] pattern [path]")
     max_count = fl.int("m")
 
-    if paths:
+    if paths and "\n" not in pattern_str:
         scope = detect_scope(paths[0])
         if not scope.use_native:
             scope = coalesce_scopes(paths) or scope
 
         if (scope.use_native and getattr(scope, "target", None) != "files"
                 and search_available(accessor.config)):
-            file_prefix = paths[0].prefix or ""
+            file_prefix = mount_prefix_of(paths[0].virtual,
+                                          paths[0].resource_path) or ""
             query = build_query(pattern_str, scope)
             target = getattr(scope, "target", None)
             do_msgs = target in (None, "date", "messages")
@@ -93,10 +95,9 @@ async def rg(
                 "slack search push-down failed (%s); "
                 "falling back to per-file scan", err)
 
-        paths = await resolve_glob(accessor, paths, index)
-
+    resolved = await resolve_glob(accessor, paths, index) if paths else []
     return await generic_rg(
-        paths,
+        resolved,
         texts,
         flags,
         readdir=_readdir,

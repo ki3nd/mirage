@@ -95,75 +95,13 @@ export {
 } from './commands/safeguard.ts'
 export { CommandTimeoutError, SafeguardExceededError } from './commands/builtin/utils/safeguard.ts'
 export { GENERAL_COMMANDS } from './commands/builtin/general/index.ts'
-export { RAM_AWK } from './commands/builtin/ram/awk.ts'
-export { RAM_BASE64 } from './commands/builtin/ram/base64_cmd.ts'
-export { RAM_BASENAME } from './commands/builtin/ram/basename.ts'
 export { GENERAL_BC } from './commands/builtin/general/bc.ts'
-export { RAM_CAT } from './commands/builtin/ram/cat/cat.ts'
-export { RAM_CMP } from './commands/builtin/ram/cmp.ts'
-export { RAM_COLUMN } from './commands/builtin/ram/column.ts'
-export { RAM_COMM } from './commands/builtin/ram/comm.ts'
-export { RAM_CP } from './commands/builtin/ram/cp.ts'
-export { RAM_CSPLIT } from './commands/builtin/ram/csplit.ts'
 export { GENERAL_CURL } from './commands/builtin/general/curl.ts'
-export { RAM_CUT } from './commands/builtin/ram/cut/cut.ts'
 export { GENERAL_DATE } from './commands/builtin/general/date.ts'
-export { RAM_DIFF } from './commands/builtin/ram/diff.ts'
-export { RAM_DIRNAME } from './commands/builtin/ram/dirname.ts'
-export { RAM_DU } from './commands/builtin/ram/du.ts'
-export { RAM_EXPAND } from './commands/builtin/ram/expand.ts'
 export { GENERAL_EXPR } from './commands/builtin/general/expr.ts'
-export { RAM_FILE } from './commands/builtin/ram/file/file.ts'
-export { RAM_FIND } from './commands/builtin/ram/find.ts'
-export { RAM_FMT } from './commands/builtin/ram/fmt.ts'
-export { RAM_FOLD } from './commands/builtin/ram/fold.ts'
-export { RAM_GREP } from './commands/builtin/ram/grep/grep.ts'
-export { RAM_GUNZIP } from './commands/builtin/ram/gunzip.ts'
-export { RAM_GZIP } from './commands/builtin/ram/gzip.ts'
-export { RAM_HEAD } from './commands/builtin/ram/head/head.ts'
-export { RAM_ICONV } from './commands/builtin/ram/iconv.ts'
-export { RAM_JOIN } from './commands/builtin/ram/join.ts'
-export { RAM_JQ } from './commands/builtin/ram/jq.ts'
-export { RAM_LN } from './commands/builtin/ram/ln.ts'
-export { RAM_LOOK } from './commands/builtin/ram/look.ts'
-export { RAM_LS } from './commands/builtin/ram/ls/ls.ts'
-export { RAM_MD5 } from './commands/builtin/ram/md5.ts'
-export { RAM_MKDIR } from './commands/builtin/ram/mkdir.ts'
-export { RAM_MKTEMP } from './commands/builtin/ram/mktemp.ts'
-export { RAM_MV } from './commands/builtin/ram/mv.ts'
-export { RAM_NL } from './commands/builtin/ram/nl.ts'
-export { RAM_PASTE } from './commands/builtin/ram/paste.ts'
-export { RAM_PATCH } from './commands/builtin/ram/patch.ts'
-export { RAM_READLINK } from './commands/builtin/ram/readlink.ts'
-export { RAM_REALPATH } from './commands/builtin/ram/realpath.ts'
-export { RAM_REV } from './commands/builtin/ram/rev.ts'
-export { RAM_RG } from './commands/builtin/ram/rg.ts'
-export { RAM_RM } from './commands/builtin/ram/rm.ts'
 export { RAM_SED } from './commands/builtin/ram/sed.ts'
 export { GENERAL_SEQ } from './commands/builtin/general/seq.ts'
-export { RAM_SHA256SUM } from './commands/builtin/ram/sha256sum.ts'
-export { RAM_SHUF } from './commands/builtin/ram/shuf.ts'
-export { RAM_SORT } from './commands/builtin/ram/sort.ts'
-export { RAM_SPLIT } from './commands/builtin/ram/split.ts'
-export { RAM_STAT } from './commands/builtin/ram/stat/stat.ts'
-export { RAM_STRINGS } from './commands/builtin/ram/strings.ts'
-export { RAM_TAC } from './commands/builtin/ram/tac.ts'
-export { RAM_TAIL } from './commands/builtin/ram/tail/tail.ts'
-export { RAM_TAR } from './commands/builtin/ram/tar.ts'
-export { RAM_TEE } from './commands/builtin/ram/tee.ts'
-export { RAM_TOUCH } from './commands/builtin/ram/touch.ts'
-export { RAM_TR } from './commands/builtin/ram/tr.ts'
-export { RAM_TREE } from './commands/builtin/ram/tree.ts'
-export { RAM_TSORT } from './commands/builtin/ram/tsort.ts'
-export { RAM_UNEXPAND } from './commands/builtin/ram/unexpand.ts'
-export { RAM_UNIQ } from './commands/builtin/ram/uniq.ts'
-export { RAM_UNZIP } from './commands/builtin/ram/unzip.ts'
-export { RAM_WC } from './commands/builtin/ram/wc/wc.ts'
 export { GENERAL_WGET } from './commands/builtin/general/wget.ts'
-export { RAM_XXD } from './commands/builtin/ram/xxd.ts'
-export { RAM_ZCAT } from './commands/builtin/ram/zcat.ts'
-export { RAM_ZGREP } from './commands/builtin/ram/zgrep.ts'
-export { RAM_ZIP } from './commands/builtin/ram/zip_cmd.ts'
 export { S3_COMMANDS } from './commands/builtin/s3/index.ts'
 export {
   AMBIGUOUS_NAMES,
@@ -190,7 +128,6 @@ export {
   drain,
   exitOnEmpty,
   mergeStdoutStderr,
-  peekExitCode,
   quietMatch,
   wrapCachableStreams,
   yieldBytes,
@@ -217,6 +154,27 @@ export {
   makeFiletypeCommands,
   type FiletypeCommandsOptions,
 } from './commands/builtin/filetype_factory/factory.ts'
+export {
+  type Builder,
+  type BuilderFn,
+  type CommandIO,
+  type MakeGenericCommandsOptions,
+  defaultProvision,
+  makeCopyProvision,
+  makeFileReadProvision,
+  makeGenericCommands,
+  makeHeadTailProvision,
+  makeJqProvision,
+  makeResolveGlob,
+  makeSearchProvision,
+  makeSedProvision,
+  makeTransformProvision,
+  metadataProvision,
+  pureProvision,
+  resolveGlobOf,
+  withDefaultProvisions,
+  writeMetadataProvision,
+} from './commands/builtin/generic_bind/index.ts'
 export {
   FILETYPE_ENTRIES,
   type FiletypeEntry,
@@ -254,6 +212,7 @@ export { gzipGeneric } from './commands/builtin/generic/gzip.ts'
 export { gunzipGeneric } from './commands/builtin/generic/gunzip.ts'
 export { iconvGeneric } from './commands/builtin/generic/iconv.ts'
 export { sedGeneric } from './commands/builtin/generic/sed.ts'
+export { makeSed, type SedBackend } from './commands/builtin/generic/sed_command.ts'
 export { teeGeneric } from './commands/builtin/generic/tee.ts'
 export { splitGeneric } from './commands/builtin/generic/split.ts'
 export { csplitGeneric } from './commands/builtin/generic/csplit.ts'
@@ -264,21 +223,21 @@ export { zipGeneric } from './commands/builtin/generic/zip_cmd.ts'
 export { tarGeneric } from './commands/builtin/generic/tar.ts'
 export { realpathGeneric } from './commands/builtin/generic/realpath.ts'
 export { findGeneric, findSizeMtimeError, invalidFindArg } from './commands/builtin/generic/find.ts'
-export { statGeneric, statProvisionGeneric } from './commands/builtin/generic/stat.ts'
+export { statGeneric } from './commands/builtin/generic/stat.ts'
 export { diffGeneric } from './commands/builtin/generic/diff.ts'
 export { duGeneric } from './commands/builtin/generic/du.ts'
 export { treeGeneric } from './commands/builtin/generic/tree.ts'
 export { lsGeneric } from './commands/builtin/generic/ls.ts'
 export { fileGeneric } from './commands/builtin/generic/file.ts'
 export { sha256sumGeneric } from './commands/builtin/generic/sha256sum.ts'
-export { jqGeneric, jqProvisionGeneric } from './commands/builtin/generic/jq.ts'
+export { jqGeneric } from './commands/builtin/generic/jq.ts'
 export { grepGeneric } from './commands/builtin/generic/grep.ts'
 export { rgGeneric } from './commands/builtin/generic/rg.ts'
 export { cpGeneric } from './commands/builtin/generic/cp.ts'
 export { mvGeneric } from './commands/builtin/generic/mv.ts'
 export { awkGeneric } from './commands/builtin/generic/awk.ts'
-export { catGeneric, catProvisionGeneric } from './commands/builtin/generic/cat.ts'
-export { headGeneric, headProvisionGeneric } from './commands/builtin/generic/head.ts'
+export { catGeneric } from './commands/builtin/generic/cat.ts'
+export { headGeneric } from './commands/builtin/generic/head.ts'
 export { tailGeneric } from './commands/builtin/generic/tail.ts'
 export { wcGeneric } from './commands/builtin/generic/wc.ts'
 export { readlinkGeneric } from './commands/builtin/generic/readlink.ts'
@@ -302,6 +261,7 @@ export {
   grepLines,
   type GrepStreamOptions,
   grepStream,
+  patternArg,
 } from './commands/builtin/grep_helper.ts'
 export { grepContextLines } from './commands/builtin/grep_context.ts'
 export {
@@ -334,7 +294,15 @@ export {
 } from './commands/builtin/utils/output.ts'
 export { grepFilesOnly, grepRecursive } from './commands/builtin/grep_helper.ts'
 export { interpretEscapes } from './commands/builtin/utils/escapes.ts'
-export { deflateRaw, gunzip, gzip, inflateRaw } from './utils/compress.ts'
+export {
+  deflateRaw,
+  gunzip,
+  gzip,
+  inflateRaw,
+  registerCompressionCodec,
+  getCompressionCodec,
+  type CompressionCodec,
+} from './utils/compress.ts'
 export { decodeBase64, encodeBase64 } from './utils/base64.ts'
 export { md5, md5Hex, sha256, sha256Hex } from './utils/hash.ts'
 export {
@@ -413,6 +381,14 @@ export {
 } from './cache/index/config.ts'
 export { IndexCacheStore } from './cache/index/store.ts'
 export { RAMIndexCacheStore } from './cache/index/ram.ts'
+export { CacheManager } from './cache/manager.ts'
+export {
+  activeCacheManager,
+  invalidateAfterUnlink,
+  invalidateAfterWrite,
+  runWithCacheManager,
+  type CacheInvalidator,
+} from './cache/context.ts'
 export {
   RedisIndexCacheStore,
   type RedisClientLike,
@@ -502,8 +478,8 @@ export {
   getUnsetNames,
   getWhileParts,
 } from './shell/helpers.ts'
-export { MountRegistry } from './workspace/mount/registry.ts'
-export { Mount, type MountInit } from './workspace/mount/mount.ts'
+export { MountCommandUnsupported, MountRegistry } from './workspace/mount/registry.ts'
+export { MountEntry, type MountInit } from './workspace/mount/mount.ts'
 export { normMountPrefix } from './workspace/snapshot/utils.ts'
 export {
   command,
@@ -521,7 +497,6 @@ export {
   COMPOUND_EXTENSIONS,
   getExtension,
   materializeStdout,
-  resolveFirstPath,
   stripPrefixFromPathKwargs,
 } from './commands/resolve.ts'
 export {
@@ -577,11 +552,6 @@ export { truncate } from './core/s3/truncate.ts'
 export { unlink } from './core/s3/unlink.ts'
 export { write } from './core/s3/write.ts'
 export { S3_OPS } from './ops/s3/index.ts'
-export {
-  fileReadProvision as s3FileReadProvision,
-  headTailProvision as s3HeadTailProvision,
-  metadataProvision as s3MetadataProvision,
-} from './commands/builtin/s3/provision.ts'
 export {
   HttpSlackTransport,
   NodeSlackTransport,
@@ -781,7 +751,6 @@ export {
   type DriveOwner,
   downloadFile as googleDriveDownloadFile,
   downloadFileStream as googleDriveDownloadFileStream,
-  getFileMetadata as googleDriveGetFileMetadata,
   listAllFiles as googleDriveListAllFiles,
   listFiles as googleDriveListFiles,
 } from './core/google/drive.ts'
@@ -813,16 +782,11 @@ export {
   stream as gsheetsStream,
   readSpreadsheet as gsheetsReadSpreadsheet,
   readValues as gsheetsReadValues,
-  fetchSheetNames as gsheetsFetchSheetNames,
 } from './core/gsheets/read.ts'
 export { readdir as gsheetsReaddir } from './core/gsheets/readdir.ts'
 export { stat as gsheetsStat } from './core/gsheets/stat.ts'
 export { resolveGlob as gsheetsResolveGlob } from './core/gsheets/glob.ts'
-export {
-  writeValues as gsheetsWriteValues,
-  appendValues as gsheetsAppendValues,
-  SheetsApiError,
-} from './core/gsheets/write.ts'
+export { appendValues as gsheetsAppendValues, SheetsApiError } from './core/gsheets/write.ts'
 export { batchUpdate as gsheetsBatchUpdate } from './core/gsheets/update.ts'
 export { createSpreadsheet as gsheetsCreateSpreadsheet } from './core/gsheets/create.ts'
 export { GSHEETS_PROMPT, GSHEETS_WRITE_PROMPT } from './resource/gsheets/prompt.ts'
@@ -908,8 +872,6 @@ export {
   type BoxItemType,
   downloadFile as boxDownloadFile,
   downloadFileStream as boxDownloadFileStream,
-  getFileMetadata as boxGetFileMetadata,
-  getFolderMetadata as boxGetFolderMetadata,
   listFolderItems as boxListFolderItems,
   searchItems as boxSearchItems,
   getExtractedText as boxGetExtractedText,
@@ -1071,6 +1033,22 @@ export { readdir as chromaReaddir } from './core/chroma/readdir.ts'
 export { stat as chromaStat } from './core/chroma/stat.ts'
 export { resolveGlob as resolveChromaGlob } from './core/chroma/glob.ts'
 export { searchSegments as chromaSearch } from './core/chroma/search.ts'
+export type { QdrantPoint, QdrantRow } from './core/qdrant/_client.ts'
+export { QdrantAccessor } from './accessor/qdrant.ts'
+export {
+  resolveQdrantConfig,
+  type QdrantConfig,
+  type QdrantConfigResolved,
+} from './resource/qdrant/config.ts'
+export { QDRANT_PROMPT } from './resource/qdrant/prompt.ts'
+export { QDRANT_OPS } from './ops/qdrant/index.ts'
+export { QDRANT_COMMANDS } from './commands/builtin/qdrant/index.ts'
+export { QdrantResource, type QdrantResourceOptions } from './resource/qdrant/qdrant.ts'
+export { read as qdrantRead } from './core/qdrant/read.ts'
+export { readdir as qdrantReaddir } from './core/qdrant/readdir.ts'
+export { stat as qdrantStat } from './core/qdrant/stat.ts'
+export { resolveGlob as resolveQdrantGlob } from './core/qdrant/glob.ts'
+export { searchRowsOutput as qdrantSearch } from './core/qdrant/search.ts'
 export { scoreFromDistance } from './utils/score.ts'
 export {
   countDocuments as mongoCountDocuments,
@@ -1093,14 +1071,18 @@ export {
 export { setHttpProxyBase } from './commands/builtin/utils/http.ts'
 
 export { lstripSlash, rstripSlash, stripSlash } from './utils/slash.ts'
+export { mountKey, mountPrefixOf, rekey, stripMount } from './utils/key_prefix.ts'
 export { fnmatch } from './utils/fnmatch.ts'
 export {
   buildTree,
   computeNonemptyDirs,
+  emitStartPath,
+  type EmitStartPathOptions,
   evalPredicate,
   type FindEntry,
   keep,
   type PredNode,
+  startBasename,
 } from './commands/builtin/findEval.ts'
 export { enoent, enotdir, errorVirtualPath, type FsError, gnuStrerror } from './utils/errors.ts'
 

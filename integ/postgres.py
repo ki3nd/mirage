@@ -16,7 +16,7 @@ import asyncio
 import os
 
 import asyncpg
-from cases import run_not_found
+from cases import run_not_found, run_provision_probe
 
 from mirage import MountMode, Workspace
 from mirage.resource.postgres import PostgresConfig, PostgresResource
@@ -71,6 +71,13 @@ CASES: list[tuple[str, str]] = [
     ("safeguard_cat_truncates", f"cat {MOUNT}/public/tables/books/rows.jsonl"),
     ("safeguard_cat_pipe_uncapped",
      f"cat {MOUNT}/public/tables/books/rows.jsonl | wc -l"),
+    # symlink into the mount (namespace state; works on a read-only backend)
+    ("sym_ln", f"ln -s {MOUNT}/public/tables/books/schema.json"
+     f" {MOUNT}/meta_link"),
+    ("sym_readlink", f"readlink {MOUNT}/meta_link"),
+    ("sym_cat", f"cat {MOUNT}/meta_link"),
+    ("sym_ls", f"ls -F {MOUNT} | grep meta_link"),
+    ("sym_rm", f"rm {MOUNT}/meta_link && ls {MOUNT}"),
 ]
 
 
@@ -107,8 +114,6 @@ async def _run(ws: Workspace, name: str, cmd: str) -> None:
 def _set_cat_safeguard(ws: Workspace, max_lines: int) -> None:
     sg = CommandSafeguard(max_lines=max_lines)
     mounts = list(ws._registry._mounts)
-    if ws._registry.default_mount is not None:
-        mounts.append(ws._registry.default_mount)
     for m in mounts:
         m.command_safeguards["cat"] = sg
 
@@ -127,6 +132,7 @@ async def main() -> None:
             _set_cat_safeguard(ws, max_lines=2)
         await _run(ws, name, cmd)
     await run_not_found(ws, MOUNT)
+    await run_provision_probe(ws, f"{MOUNT}/public/tables/books/rows.jsonl")
     await resource.accessor.close()
 
 

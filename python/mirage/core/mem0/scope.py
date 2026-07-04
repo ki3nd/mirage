@@ -24,13 +24,7 @@ class Mem0Scope:
 
 
 def _backend_key(path: PathSpec) -> str:
-    raw = path.original
-    prefix = path.prefix
-    if prefix and raw.startswith(prefix):
-        rest = raw[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            raw = rest or "/"
-    return raw.strip("/")
+    return path.resource_path.strip("/")
 
 
 def detect(path: PathSpec) -> Mem0Scope:

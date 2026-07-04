@@ -12,12 +12,15 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { RAMIndexCacheStore } from '../../../cache/index/ram.ts'
 import { materialize } from '../../../io/types.ts'
 import { PathSpec } from '../../../types.ts'
 import { FakeDiscordTransport, makeFakeResource, seedChannel, seedGuild } from './_test_util.ts'
-import { DISCORD_CAT } from './cat.ts'
+import { DISCORD_COMMANDS } from './index.ts'
+
+const DISCORD_CAT = DISCORD_COMMANDS.filter((c) => c.name === 'cat' && c.filetype == null)
 
 const DEC = new TextDecoder()
 
@@ -64,10 +67,13 @@ describe('discord cat', () => {
     const out = await runCat(
       [
         new PathSpec({
-          original: '/mnt/discord/My Server__G1/channels/general__C1/2016-04-30/chat.jsonl',
+          virtual: '/mnt/discord/My Server__G1/channels/general__C1/2016-04-30/chat.jsonl',
           directory: '/mnt/discord/My Server__G1/channels/general__C1/',
           resolved: false,
-          prefix: '/mnt/discord',
+          resourcePath: mountKey(
+            '/mnt/discord/My Server__G1/channels/general__C1/2016-04-30/chat.jsonl',
+            '/mnt/discord',
+          ),
         }),
       ],
       {},
@@ -94,10 +100,13 @@ describe('discord cat', () => {
     const out = await runCat(
       [
         new PathSpec({
-          original: '/mnt/discord/My Server__G1/channels/general__C1/2016-04-30/chat.jsonl',
+          virtual: '/mnt/discord/My Server__G1/channels/general__C1/2016-04-30/chat.jsonl',
           directory: '/mnt/discord/My Server__G1/channels/general__C1/',
           resolved: false,
-          prefix: '/mnt/discord',
+          resourcePath: mountKey(
+            '/mnt/discord/My Server__G1/channels/general__C1/2016-04-30/chat.jsonl',
+            '/mnt/discord',
+          ),
         }),
       ],
       { n: true },

@@ -26,6 +26,7 @@ from mirage.ops.config import OpsMount
 from mirage.ops.registry import OpsRegistry, RegisteredOp
 from mirage.runtime import assert_mount_allowed
 from mirage.types import FileStat, MountMode, PathSpec
+from mirage.utils.key_prefix import mount_key
 
 
 class Ops:
@@ -138,9 +139,9 @@ class Ops:
         prev_prefix = push_mount_prefix(mount_prefix)
         filetype = self._get_filetype(rel_path)
         scope = PathSpec(
-            original=path,
+            virtual=path,
             directory=path.rsplit("/", 1)[0] or "/",
-            prefix=mount_prefix,
+            resource_path=mount_key(path, mount_prefix),
         )
         try:
             result = await self._registry.call(op,
@@ -232,14 +233,14 @@ class Ops:
             raise PermissionError(f"mount at {src!r} is read-only")
         mount_prefix = self._mount_prefix(src)
         src_scope = PathSpec(
-            original=src,
+            virtual=src,
             directory=src.rsplit("/", 1)[0] or "/",
-            prefix=mount_prefix,
+            resource_path=mount_key(src, mount_prefix),
         )
         dst_scope = PathSpec(
-            original=dst,
+            virtual=dst,
             directory=dst.rsplit("/", 1)[0] or "/",
-            prefix=mount_prefix,
+            resource_path=mount_key(dst, mount_prefix),
         )
         fn = self._registry.resolve("rename", resource_type)
         await fn(accessor, src_scope, dst_scope)
@@ -280,16 +281,26 @@ class Ops:
         return sum(r.bytes for r in self.records if r.is_cache)
 
     def is_mounted(self, path: str) -> bool:
-        """Check if a path is under a known mount.
+        """Check if a path is under an explicit mount.
+
+        Used by the open()/os interception to decide whether a path is a
+        workspace path (route through ops) or a real OS path (pass through).
+        The catch-all virtual root at ``/`` is skipped on purpose: it matches
+        every absolute path, so counting it would hijack real filesystem
+        paths (a FUSE mountpoint, ``/tmp``) into ops. Routing to the root for
+        ops themselves still happens via ``_resolve``; this gate is only about
+        what the interception should leave alone.
 
         Args:
             path (str): Virtual path.
 
         Returns:
-            bool: True if path matches a mount prefix.
+            bool: True if path is under a mount other than the virtual root.
         """
-        try:
-            self._resolve(path)
-            return True
-        except ValueError:
-            return False
+        norm = "/" + path.strip("/")
+        for m in self._mounts:
+            if m.prefix == "/":
+                continue
+            if norm == m.prefix.rstrip("/") or norm.startswith(m.prefix):
+                return True
+        return False

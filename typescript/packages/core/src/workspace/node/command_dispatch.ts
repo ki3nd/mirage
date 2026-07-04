@@ -22,6 +22,7 @@ import {
   getParts,
   getProcessSubDirection,
   getText,
+  splitEnvPrefix,
 } from '../../shell/helpers.ts'
 import type { PyodideRuntime } from '../executor/python/runtime.ts'
 import type { JobTable } from '../../shell/job_table.ts'
@@ -37,17 +38,21 @@ import { resolveSafeguard } from '../../commands/safeguard.ts'
 import { BreakSignal, ContinueSignal } from '../executor/control.ts'
 import type { DispatchFn } from '../executor/cross_mount.ts'
 import {
+  NO_FOLLOW_COMMANDS,
+  followPaths,
   handleBash,
   handleCd,
   handleEcho,
   handleEval,
   handleExport,
   handleHistory,
+  handleLn,
   handleLocal,
   handleMan,
   handlePrintenv,
   handlePrintf,
   handleRead,
+  handleReadlink,
   handleReturn,
   handleSet,
   handleShift,
@@ -57,9 +62,15 @@ import {
   handleTrap,
   handleUnset,
   handleWhoami,
+  linkFlags,
+  prepareMv,
+  stripLinkOperands,
 } from '../executor/builtins/index.ts'
+import { CycleError } from '../../utils/path.ts'
+import type { Namespace } from '../mount/namespace.ts'
 import type { MountRegistry } from '../mount/registry.ts'
 import type { Session } from '../session/session.ts'
+import { homeDir } from '../session/shell_dirs.ts'
 import { ExecutionNode } from '../types.ts'
 import { resolveGlobs } from './resolve_globs.ts'
 
@@ -74,6 +85,46 @@ const UNSUPPORTED_BUILTINS: ReadonlySet<string> = new Set([
   'ulimit',
 ])
 
+// Split leading `cd` option flags (-L -P -e -@, clusters like -LP, and a
+// `--` terminator) from the directory operand. A bare `-` is the OLDPWD
+// operand, not an option. `bad` is the first unknown option character.
+function splitCdOptions(args: (string | PathSpec)[]): {
+  operands: (string | PathSpec)[]
+  bad: string | null
+  physical: boolean
+} {
+  const operands: (string | PathSpec)[] = []
+  let parsing = true
+  let physical = false
+  for (const arg of args) {
+    const s = arg instanceof PathSpec ? arg.virtual : arg
+    if (parsing) {
+      if (s === '--') {
+        parsing = false
+        continue
+      }
+      if (s !== '-' && s.length >= 2 && s.startsWith('-')) {
+        let bad: string | null = null
+        for (const c of s.slice(1)) {
+          if (!'LPe@'.includes(c)) {
+            bad = c
+            break
+          }
+        }
+        if (bad !== null) return { operands, bad, physical }
+        for (const c of s.slice(1)) {
+          if (c === 'P') physical = true
+          else if (c === 'L') physical = false
+        }
+        continue
+      }
+      parsing = false
+    }
+    operands.push(arg)
+  }
+  return { operands, bad: null, physical }
+}
+
 export async function executeCommand(
   recurse: (
     n: TSNodeLike,
@@ -83,6 +134,7 @@ export async function executeCommand(
   ) => Promise<Result>,
   dispatch: DispatchFn,
   registry: MountRegistry,
+  namespace: Namespace,
   executeFn: ExecuteFn,
   node: TSNodeLike,
   session: Session,
@@ -95,30 +147,20 @@ export async function executeCommand(
   signal?: AbortSignal,
 ): Promise<Result> {
   const name = getCommandName(node)
-  const rawParts = getParts(node)
+  const [assignmentNodes, nonPrefixParts] = splitEnvPrefix(getParts(node))
 
   const prefixAssignments: [string, string][] = []
-  const nonPrefixParts: TSNodeLike[] = []
-  let sawCommandName = false
-  for (const p of rawParts) {
-    if (!sawCommandName && p.type === NT.VARIABLE_ASSIGNMENT) {
-      const atext = getText(p)
-      const eq = atext.indexOf('=')
-      if (eq >= 0) {
-        const key = atext.slice(0, eq)
-        const rawVal = atext.slice(eq + 1)
-        const valNodes = p.namedChildren.filter((c) => c.type !== NT.VARIABLE_NAME)
-        const firstVal = valNodes[0]
-        const v =
-          firstVal !== undefined
-            ? await expandNode(firstVal, session, executeFn, callStack)
-            : rawVal
-        prefixAssignments.push([key, v])
-      }
-      continue
-    }
-    if (p.type === NT.COMMAND_NAME) sawCommandName = true
-    nonPrefixParts.push(p)
+  for (const p of assignmentNodes) {
+    const atext = getText(p)
+    const eq = atext.indexOf('=')
+    if (eq < 0) continue
+    const key = atext.slice(0, eq)
+    const rawVal = atext.slice(eq + 1)
+    const valNodes = p.namedChildren.filter((c) => c.type !== NT.VARIABLE_NAME)
+    const firstVal = valNodes[0]
+    const v =
+      firstVal !== undefined ? await expandNode(firstVal, session, executeFn, callStack) : rawVal
+    prefixAssignments.push([key, v])
   }
 
   for (const [k] of prefixAssignments) {
@@ -153,6 +195,7 @@ export async function executeCommand(
         recurse,
         dispatch,
         registry,
+        namespace,
         executeFn,
         node,
         nonPrefixParts,
@@ -190,6 +233,7 @@ async function runCommandBody(
   ) => Promise<Result>,
   dispatch: DispatchFn,
   registry: MountRegistry,
+  namespace: Namespace,
   executeFn: ExecuteFn,
   node: TSNodeLike,
   parts: TSNodeLike[],
@@ -265,9 +309,9 @@ async function runCommandBody(
     pathArgs = pathSet.size > 0 ? pathSet : null
   }
 
-  const classified = classifyParts(expanded, registry, session.cwd, textArgs, pathArgs)
+  let classified = classifyParts(expanded, registry, session.cwd, textArgs, pathArgs)
   const resolved = await resolveGlobs(classified, registry, textArgs)
-  const finalExpanded = resolved.map((p) => (p instanceof PathSpec ? p.original : p))
+  const finalExpanded = resolved.map((p) => (p instanceof PathSpec ? p.virtual : p))
 
   // Unsupported bash builtins. Constructs the parser accepts but the
   // executor cannot honor. Returning a clear error lets LLMs detect a
@@ -288,16 +332,92 @@ async function runCommandBody(
   }
 
   if (name === SB.CD) {
-    let path: string | PathSpec = '/'
-    if (classified.length > 1) {
-      const raw = classified[1]
-      const rawStr = raw instanceof PathSpec ? raw.original : String(raw)
-      if (rawStr === '~') path = '/'
-      else if (raw instanceof PathSpec) path = raw
-      else if (rawStr.startsWith('/')) path = rawStr
-      else path = classifyBarePath(rawStr, registry, session.cwd)
+    const { operands, bad, physical } = splitCdOptions(classified.slice(1))
+    const links = namespace.symlinkTargets()
+    if (bad !== null) {
+      const err = new TextEncoder().encode(
+        `cd: -${bad}: invalid option\ncd: usage: cd [-L|[-P [-e]] [-@]] [dir]\n`,
+      )
+      return [
+        null,
+        new IOResult({ exitCode: 2, stderr: err }),
+        new ExecutionNode({ command: 'cd', exitCode: 2, stderr: err }),
+      ]
     }
-    return handleCd(dispatch, (p) => registry.isMountRoot(p), path, session)
+    if (operands.length > 1) {
+      const err = new TextEncoder().encode('cd: too many arguments\n')
+      return [
+        null,
+        new IOResult({ exitCode: 1, stderr: err }),
+        new ExecutionNode({ command: 'cd', exitCode: 1, stderr: err }),
+      ]
+    }
+    if (operands.length === 0) {
+      const home = homeDir(session)
+      if (home === null) {
+        const err = new TextEncoder().encode('cd: HOME not set\n')
+        return [
+          null,
+          new IOResult({ exitCode: 1, stderr: err }),
+          new ExecutionNode({ command: 'cd', exitCode: 1, stderr: err }),
+        ]
+      }
+      return handleCd(
+        dispatch,
+        (p) => registry.isMountRoot(p),
+        home,
+        session,
+        false,
+        null,
+        links,
+        physical,
+      )
+    }
+    const raw = operands[0]
+    const rawStr = raw instanceof PathSpec ? raw.virtual : String(raw)
+    if (rawStr === '-') {
+      const old = session.env.OLDPWD
+      if (!old) {
+        const err = new TextEncoder().encode('cd: OLDPWD not set\n')
+        return [
+          null,
+          new IOResult({ exitCode: 1, stderr: err }),
+          new ExecutionNode({ command: 'cd -', exitCode: 1, stderr: err }),
+        ]
+      }
+      return handleCd(
+        dispatch,
+        (p) => registry.isMountRoot(p),
+        old,
+        session,
+        true,
+        null,
+        links,
+        physical,
+      )
+    }
+    let path: string | PathSpec
+    let cdpathTarget: string
+    if (raw instanceof PathSpec) {
+      path = raw
+      cdpathTarget = raw.rawPath ?? raw.virtual
+    } else if (rawStr.startsWith('/')) {
+      path = rawStr
+      cdpathTarget = rawStr
+    } else {
+      path = classifyBarePath(rawStr, registry, session.cwd)
+      cdpathTarget = rawStr
+    }
+    return handleCd(
+      dispatch,
+      (p) => registry.isMountRoot(p),
+      path,
+      session,
+      false,
+      cdpathTarget,
+      links,
+      physical,
+    )
   }
 
   if (name === SB.TRUE) {
@@ -381,8 +501,55 @@ async function runCommandBody(
     return [null, new IOResult(), new ExecutionNode({ command: 'timeout', exitCode: 0 })]
   }
 
+  // Symlinks are namespace-backed: not bash builtins, not mount commands.
+  // They mutate the addressing layer. `readlink -f/-e/-m` is canonicalization,
+  // which falls through to the mount command.
+  if (name === 'ln' && linkFlags(classified.slice(1), 'sfnv').has('s')) {
+    return handleLn(namespace, session, classified.slice(1))
+  }
+  if (name === 'readlink') {
+    const flags = linkFlags(classified.slice(1), 'fenm')
+    if (!(flags.has('f') || flags.has('e') || flags.has('m'))) {
+      return handleReadlink(namespace, session, classified.slice(1))
+    }
+  }
+
+  // Symlink-aware dispatch: reads follow links (open(2)); rm/mv act on
+  // the link entry itself (lstat semantics).
+  let postUnlink: string | null = null
+  if (namespace.symlinks.size > 0) {
+    try {
+      if (name === 'rm') {
+        const [rest, removed] = stripLinkOperands(namespace, classified.slice(1))
+        classified = [...classified.slice(0, 1), ...rest]
+        if (removed > 0 && !rest.some((a) => a instanceof PathSpec)) {
+          return [null, new IOResult(), new ExecutionNode({ command: name, exitCode: 0 })]
+        }
+      } else if (name === 'mv') {
+        const prepared = await prepareMv(namespace, dispatch, classified.slice(1))
+        classified = [...classified.slice(0, 1), ...prepared.items]
+        postUnlink = prepared.postUnlink
+        if (prepared.early !== null) return prepared.early
+      } else if (!NO_FOLLOW_COMMANDS.has(name)) {
+        classified = [...classified.slice(0, 1), ...followPaths(namespace, classified.slice(1))]
+      }
+    } catch (err) {
+      if (err instanceof CycleError) {
+        const errBytes = new TextEncoder().encode(
+          `${name}: ${err.path}: Too many levels of symbolic links\n`,
+        )
+        return [
+          null,
+          new IOResult({ exitCode: 1, stderr: errBytes }),
+          new ExecutionNode({ command: name, exitCode: 1, stderr: errBytes }),
+        ]
+      }
+      throw err
+    }
+  }
+
   // Default: mount-dispatched command
-  return handleCommand(
+  const [stdout, io, execNode] = await handleCommand(
     recurse,
     dispatch,
     registry,
@@ -394,5 +561,16 @@ async function runCommandBody(
     ensureOpen,
     unmount,
     pythonRuntime,
+    namespace,
   )
+
+  if (io.exitCode === 0 && namespace.symlinks.size > 0) {
+    if (name === 'rm') {
+      for (const item of classified.slice(1)) {
+        if (item instanceof PathSpec) namespace.purgeUnder(item.virtual)
+      }
+    }
+    if (postUnlink !== null) namespace.unlink(postUnlink)
+  }
+  return [stdout, io, execNode]
 }

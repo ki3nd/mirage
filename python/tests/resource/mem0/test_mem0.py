@@ -10,7 +10,7 @@ def test_resource_basic():
     cfg = Mem0Config(api_key=SecretStr("secret"), user_id="alex")
     res = Mem0Resource(cfg)
     assert res.name == ResourceName.MEM0
-    assert res.is_remote is True
+    assert res.caches_reads is True
     assert res.SUPPORTS_SNAPSHOT is False
 
 

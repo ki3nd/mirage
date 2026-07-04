@@ -39,6 +39,7 @@ describe('hf find', () => {
     const accessor = accessorWith(FILES)
     const results = await find(accessor, PathSpec.fromStrPath('/'))
     expect(results).toEqual([
+      '/',
       '/config.json',
       '/model.safetensors',
       '/onnx',
@@ -54,6 +55,7 @@ describe('hf find', () => {
       '/config.json',
     ])
     expect(await find(accessor, PathSpec.fromStrPath('/'), { type: 'd' })).toEqual([
+      '/',
       '/onnx',
       '/onnx/sub',
     ])
@@ -66,6 +68,7 @@ describe('hf find', () => {
       '/model.safetensors',
     ])
     expect(await find(accessor, PathSpec.fromStrPath('/'), { maxDepth: 1 })).toEqual([
+      '/',
       '/config.json',
       '/model.safetensors',
       '/onnx',
@@ -116,13 +119,14 @@ describe('hf resolveGlob', () => {
   it('expands patterns against readdir entries', async () => {
     const accessor = accessorWith(FILES)
     const spec = new PathSpec({
-      original: '/*.json',
+      resourcePath: '*.json',
+      virtual: '/*.json',
       directory: '/',
       pattern: '*.json',
       resolved: false,
     })
     const resolved = await resolveGlob(accessor, [spec])
-    expect(resolved.map((p) => p.original)).toEqual(['/config.json'])
+    expect(resolved.map((p) => p.virtual)).toEqual(['/config.json'])
   })
 
   it('passes through resolved and pattern-free specs', async () => {

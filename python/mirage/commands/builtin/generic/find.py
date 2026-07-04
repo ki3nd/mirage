@@ -1,34 +1,18 @@
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from mirage.cache.index import IndexCacheStore
-from mirage.commands.builtin.find_eval import (FindEntry, PredNode,
-                                               args_to_tree, keep)
+from mirage.commands.builtin.find_eval import (FindArgs, FindEntry,
+                                               args_to_tree, keep,
+                                               tree_has_empty)
 from mirage.commands.builtin.find_helper import (_parse_depth, _parse_mtime,
                                                  _parse_size)
 from mirage.commands.builtin.find_parse import parse_find_expression
 from mirage.commands.builtin.utils.output import format_records
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import FileStat, FileType, FindType, PathSpec
-
-
-@dataclass
-class FindArgs:
-    name: str | None = None
-    iname: str | None = None
-    path_pattern: str | None = None
-    type: FindType | str | None = None
-    min_size: int | None = None
-    max_size: int | None = None
-    mtime_min: float | None = None
-    mtime_max: float | None = None
-    maxdepth: int | None = None
-    mindepth: int | None = None
-    name_exclude: str | None = None
-    or_names: list[str] | None = None
-    empty: bool = False
-    tree: PredNode | None = None
+from mirage.utils.key_prefix import mount_key, mount_prefix_of
+from mirage.utils.path import rebase_display
 
 
 def parse_find_args(
@@ -96,10 +80,10 @@ async def apply_mtime_filter(
     filtered: list[str] = []
     for r in results:
         try:
-            spec = PathSpec(original=r,
+            spec = PathSpec(virtual=r,
                             directory=r,
                             resolved=False,
-                            prefix=mount_prefix)
+                            resource_path=mount_key(r, mount_prefix))
             s = await stat(spec)
         except (FileNotFoundError, ValueError):
             continue
@@ -158,7 +142,7 @@ async def find(
         try:
             await stat(search_path)
         except (FileNotFoundError, ValueError) as exc:
-            stderr = f"find: '{search_path.original}': {exc}".encode()
+            stderr = f"find: '{search_path.display}': {exc}".encode()
             return b"", IOResult(stderr=stderr, exit_code=1)
     results = await find_core(
         search_path,
@@ -175,13 +159,16 @@ async def find(
         empty=args.empty,
         tree=args.tree,
     )
+    root_prefix = mount_prefix_of(search_path.virtual,
+                                  search_path.resource_path)
     if stat is not None:
         results = await apply_mtime_filter(results,
                                            mtime_min=args.mtime_min,
                                            mtime_max=args.mtime_max,
                                            stat=stat,
-                                           mount_prefix=search_path.prefix)
-    results = apply_mount_prefix(results, search_path.prefix)
+                                           mount_prefix=root_prefix)
+    results = apply_mount_prefix(results, root_prefix)
+    results = rebase_display(results, search_path.virtual, search_path.display)
     return format_records(results), IOResult()
 
 
@@ -205,16 +192,38 @@ async def _stat_entry(
     prefix: str,
     index: IndexCacheStore | None,
 ) -> FileStat | None:
-    spec = PathSpec(original=path,
+    spec = PathSpec(virtual=path,
                     directory=path,
                     resolved=False,
-                    prefix=prefix)
+                    resource_path=mount_key(path, prefix))
     try:
         return await stat(spec, index)
     except FileNotFoundError:
         # Only missing entries resolve to None; API errors (rate limit, auth)
         # propagate.
         return None
+
+
+async def _is_empty_entry(
+    readdir: Callable[[PathSpec, IndexCacheStore | None],
+                      Awaitable[list[str]]],
+    stat: Callable[[PathSpec, IndexCacheStore | None], Awaitable[FileStat]],
+    path: str,
+    is_dir: bool,
+    prefix: str,
+    index: IndexCacheStore | None,
+) -> bool:
+    if is_dir:
+        spec = PathSpec(virtual=path,
+                        directory=path,
+                        resolved=False,
+                        resource_path=mount_key(path, prefix))
+        try:
+            return len(await readdir(spec, index)) == 0
+        except FileNotFoundError:
+            return False
+    st = await _stat_entry(stat, path, prefix, index)
+    return st is not None and (st.size or 0) == 0
 
 
 async def _walk_collect(
@@ -236,20 +245,21 @@ async def _walk_collect(
         # Only vanished dirs are skipped; API errors (rate limit, auth)
         # propagate.
         return
+    prefix = mount_prefix_of(spec.virtual, spec.resource_path)
     for child in children:
         hint = is_dir_name(child)
         trimmed = child.rstrip("/") if child.endswith("/") else child
         if hint is None:
-            st = await _stat_entry(stat, trimmed, spec.prefix, index)
+            st = await _stat_entry(stat, trimmed, prefix, index)
             is_dir = st is not None and st.type == FileType.DIRECTORY
         else:
             is_dir = hint
         acc.append((trimmed, is_dir))
         if is_dir:
-            child_spec = PathSpec(original=trimmed,
+            child_spec = PathSpec(virtual=trimmed,
                                   directory=trimmed,
                                   resolved=False,
-                                  prefix=spec.prefix)
+                                  resource_path=mount_key(trimmed, prefix))
             await _walk_collect(readdir, stat, is_dir_name, child_spec, index,
                                 maxdepth, depth + 1, acc)
 
@@ -265,31 +275,38 @@ async def walk_find(
     args: FindArgs,
 ) -> list[str]:
     collected: list[tuple[str, bool]] = []
+    prefix = mount_prefix_of(search_path.virtual, search_path.resource_path)
+    search_key = search_path.mount_path.strip("/")
+    root_path = (search_path.virtual.rstrip("/")
+                 if search_path.virtual != "/" else "/")
+    root_stat = await _stat_entry(stat, root_path, prefix, index)
+    if root_stat is not None:
+        collected.append((root_path, root_stat.type == FileType.DIRECTORY))
     # GNU depth convention: the search root is depth 0, its children are
-    # depth 1, so the walk starts at 1 and -maxdepth 0 lists nothing.
+    # depth 1.
     await _walk_collect(readdir, stat, is_dir_name, search_path, index,
                         args.maxdepth, 1, collected)
-    prefix = search_path.prefix
-    search_key = search_path.strip_prefix.strip("/")
-    base_depth = search_key.count("/") if search_key else -1
-    if search_key and (args.maxdepth is None or args.maxdepth >= 0):
-        try:
-            root_stat = await stat(search_path, index)
-        except FileNotFoundError:
-            root_stat = None
-        if root_stat is not None:
-            root_p = prefix + "/" + search_key if prefix else "/" + search_key
-            collected.append((root_p, root_stat.type == FileType.DIRECTORY))
     tree = args_to_tree(args)
+    need_empty = tree_has_empty(tree)
     results: list[str] = []
     for p, is_dir in sorted(collected):
         entry_name = p.rsplit("/", 1)[-1]
         key = p[len(prefix):] if prefix and p.startswith(prefix) else p
-        depth = key.strip("/").count("/") - base_depth
+        rel = key.strip("/")
+        if search_key:
+            depth = 0 if rel == search_key else rel.count(
+                "/") - search_key.count("/")
+        else:
+            depth = 0 if rel == "" else rel.count("/") + 1
+        is_empty = None
+        if need_empty:
+            is_empty = await _is_empty_entry(readdir, stat, p, is_dir, prefix,
+                                             index)
         entry = FindEntry(key=key,
                           name=entry_name,
                           kind="d" if is_dir else "f",
-                          depth=depth)
+                          depth=depth,
+                          is_empty=is_empty)
         if not keep(entry, tree, args.mindepth):
             continue
         need_size = not is_dir and (args.min_size is not None

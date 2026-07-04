@@ -12,13 +12,14 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountPrefixOf } from '../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { command, type CommandFn } from '../../commands/config.ts'
 import { CommandSpec } from '../../commands/spec/types.ts'
 import { IOResult } from '../../io/types.ts'
 import type { Resource } from '../../resource/base.ts'
 import { MountMode, PathSpec } from '../../types.ts'
-import { MountRegistry } from './registry.ts'
+import { MountCommandUnsupported, MountRegistry } from './registry.ts'
 
 class StubResource implements Resource {
   readonly kind = 'stub'
@@ -49,9 +50,9 @@ describe('MountRegistry.resolve', () => {
     const reg = new MountRegistry({ '/data': ram }, MountMode.WRITE)
     const [r, p, mode] = reg.resolve('/data/foo.txt')
     expect(r).toBe(ram)
-    expect(p.original).toBe('/data/foo.txt')
-    expect(p.prefix).toBe('/data')
-    expect(p.stripPrefix).toBe('/foo.txt')
+    expect(p.virtual).toBe('/data/foo.txt')
+    expect(mountPrefixOf(p.virtual, p.resourcePath)).toBe('/data')
+    expect(p.mountPath).toBe('/foo.txt')
     expect(mode).toBe(MountMode.WRITE)
   })
 
@@ -59,8 +60,8 @@ describe('MountRegistry.resolve', () => {
     const ram = new StubResource()
     const reg = new MountRegistry({ '/data': ram }, MountMode.READ)
     const [, p] = reg.resolve('/data')
-    expect(p.original).toBe('/data')
-    expect(p.stripPrefix).toBe('/')
+    expect(p.virtual).toBe('/data')
+    expect(p.mountPath).toBe('/')
   })
 
   it('picks the longest matching prefix', () => {
@@ -69,8 +70,8 @@ describe('MountRegistry.resolve', () => {
     const reg = new MountRegistry({ '/data': root, '/data/logs': logs }, MountMode.READ)
     const [picked, p] = reg.resolve('/data/logs/2026.log')
     expect(picked).toBe(logs)
-    expect(p.original).toBe('/data/logs/2026.log')
-    expect(p.stripPrefix).toBe('/2026.log')
+    expect(p.virtual).toBe('/data/logs/2026.log')
+    expect(p.mountPath).toBe('/2026.log')
   })
 
   it('falls back to the shorter mount when longer does not match', () => {
@@ -86,15 +87,15 @@ describe('MountRegistry.resolve', () => {
     const reg = new MountRegistry({ '/': rootRes }, MountMode.READ)
     const [r, p] = reg.resolve('/anywhere/deep/file')
     expect(r).toBe(rootRes)
-    expect(p.original).toBe('/anywhere/deep/file')
+    expect(p.virtual).toBe('/anywhere/deep/file')
   })
 
   it('preserves a trailing slash on the resolved path', () => {
     const ram = new StubResource()
     const reg = new MountRegistry({ '/data': ram }, MountMode.READ)
     const [, p] = reg.resolve('/data/logs/')
-    expect(p.original).toBe('/data/logs/')
-    expect(p.stripPrefix).toBe('/logs/')
+    expect(p.virtual).toBe('/data/logs/')
+    expect(p.mountPath).toBe('/logs')
   })
 
   it('throws when no mount matches the path', () => {
@@ -266,7 +267,11 @@ describe('MountRegistry.resolveMount: cross-mount fallback', () => {
     const [grepB] = command({ name: 'grep', resource: 'ram', spec: EMPTY_SPEC, fn: NOOP_CMD })
     if (grepB === undefined) throw new Error('missing grep cmd')
     b.register(grepB)
-    const path = new PathSpec({ original: '/b/file.txt', directory: '/b' })
+    const path = new PathSpec({
+      resourcePath: 'b/file.txt',
+      virtual: '/b/file.txt',
+      directory: '/b',
+    })
     const mount = await reg.resolveMount('grep', [path], '/a/x')
     expect(mount).toBe(b)
   })
@@ -295,5 +300,55 @@ describe('MountRegistry.resolveMount: cross-mount fallback', () => {
     expect(new TextDecoder().decode(io.stderr as Uint8Array)).toContain(
       'mutate: read-only mount at /b/',
     )
+  })
+})
+
+class LimitedResource implements Resource {
+  readonly kind = 'limited'
+  open(): Promise<void> {
+    return Promise.resolve()
+  }
+  close(): Promise<void> {
+    return Promise.resolve()
+  }
+}
+
+describe('MountRegistry.resolveMount: path-bound dispatch', () => {
+  function pathBoundRegistryWithFallback(): MountRegistry {
+    const reg = new MountRegistry({ '/limited/': new LimitedResource() }, MountMode.WRITE)
+    reg.mount('/', new RAMStubResource(), MountMode.WRITE)
+    const root = reg.mountForPrefix('/')
+    if (root === null) throw new Error('missing / mount')
+    const [fallbackOnly] = command({
+      name: 'fallback-only',
+      resource: 'ram',
+      spec: EMPTY_SPEC,
+      fn: NOOP_CMD,
+    })
+    if (fallbackOnly === undefined) throw new Error('missing fallback-only cmd')
+    root.register(fallbackOnly)
+    return reg
+  }
+
+  it('rejects a path-bound command unsupported by its backend', async () => {
+    const reg = pathBoundRegistryWithFallback()
+    const path = new PathSpec({
+      resourcePath: 'limited/file.txt',
+      virtual: '/limited/file.txt',
+      directory: '/limited',
+    })
+    await expect(reg.resolveMount('fallback-only', [path], '/limited')).rejects.toThrow(
+      MountCommandUnsupported,
+    )
+    await expect(reg.resolveMount('fallback-only', [path], '/limited')).rejects.toThrow(
+      'fallback-only: not supported on the limited backend',
+    )
+  })
+
+  it('allows the fallback mount when the command is not path-bound', async () => {
+    const reg = pathBoundRegistryWithFallback()
+    const mount = await reg.resolveMount('fallback-only', [], '/limited')
+    expect(mount).not.toBeNull()
+    expect(mount?.prefix).toBe('/')
   })
 })

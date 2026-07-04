@@ -16,14 +16,15 @@ import { record } from '../../observe/context.ts'
 import type { RAMAccessor } from '../../accessor/ram.ts'
 import { ResourceName, type PathSpec } from '../../types.ts'
 import { norm, nowIso } from './utils.ts'
+import { invalidateAfterWrite } from '../../cache/context.ts'
 
-export function appendBytes(
+export async function appendBytes(
   accessor: RAMAccessor,
   path: PathSpec,
   data: Uint8Array,
 ): Promise<void> {
   const start = performance.now()
-  const p = norm(path.stripPrefix)
+  const p = norm(path.mountPath)
   const existing = accessor.store.files.get(p)
   if (existing) {
     const combined = new Uint8Array(existing.byteLength + data.byteLength)
@@ -35,5 +36,6 @@ export function appendBytes(
   }
   accessor.store.modified.set(p, nowIso())
   record('append', p, ResourceName.RAM, data.byteLength, start)
+  await invalidateAfterWrite(path)
   return Promise.resolve()
 }

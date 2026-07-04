@@ -13,6 +13,7 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.redis import RedisAccessor
+from mirage.cache.context import invalidate_after_write
 from mirage.core.timeutil import now_iso
 from mirage.types import PathSpec
 from mirage.utils.path import norm, parent
@@ -24,9 +25,11 @@ async def mkdir(
     parents: bool = False,
 ) -> None:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     store = accessor.store
     p = norm(path)
     if parents:
@@ -46,3 +49,4 @@ async def mkdir(
             f"parent directory does not exist: {parent_dir}")
     await store.add_dir(p)
     await store.set_modified(p, now_iso())
+    await invalidate_after_write(p)

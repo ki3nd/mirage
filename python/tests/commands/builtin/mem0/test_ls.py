@@ -32,7 +32,7 @@ def _res():
 @pytest.mark.asyncio
 async def test_ls_lists_memories():
     res = _res()
-    p = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     source, _io = await ls.__wrapped__(res.accessor, [p],
                                        index=res._index,
                                        cwd=p)

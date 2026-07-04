@@ -22,6 +22,7 @@ from mirage.core.gsheets._client import (SHEETS_API_BASE, TokenManager,
 from mirage.core.gsheets.readdir import readdir
 from mirage.types import PathSpec
 from mirage.utils.errors import enoent
+from mirage.utils.key_prefix import mount_key, mount_prefix_of
 
 
 async def read_spreadsheet(token_manager: TokenManager,
@@ -57,42 +58,18 @@ async def read_values(token_manager: TokenManager, spreadsheet_id: str,
     return json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
 
 
-async def fetch_sheet_names(
-    token_manager: TokenManager,
-    spreadsheet_id: str,
-) -> list[str]:
-    """Fetch sheet tab names for a spreadsheet.
-
-    Args:
-        token_manager (TokenManager): manages OAuth2 tokens.
-        spreadsheet_id (str): Google Sheets spreadsheet ID.
-
-    Returns:
-        list[str]: list of sheet tab names.
-    """
-    fields = "sheets.properties.title"
-    url = f"{SHEETS_API_BASE}/spreadsheets/{spreadsheet_id}?fields={fields}"
-    data = await google_get(token_manager, url)
-    return [s["properties"]["title"] for s in data.get("sheets", [])]
-
-
 async def read(
     accessor: GSheetsAccessor,
     path: PathSpec,
     index: IndexCacheStore = None,
 ) -> bytes:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
-    virtual = path.original
-    if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.original
-
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
-    key = path.strip("/")
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
+    prefix = mount_prefix_of(path.virtual, path.resource_path)
+    key = path.resource_path
     if index is None:
         raise enoent(virtual)
     virtual_key = prefix + "/" + key if prefix else "/" + key
@@ -100,7 +77,8 @@ async def read(
     if result.entry is None:
         parent_key = posixpath.dirname(virtual_key) or "/"
         if parent_key != virtual_key:
-            parent_path = PathSpec.from_str_path(parent_key, prefix=prefix)
+            parent_path = PathSpec.from_str_path(parent_key,
+                                                 mount_key(parent_key, prefix))
             try:
                 await readdir(accessor, parent_path, index)
                 result = await index.get(virtual_key)

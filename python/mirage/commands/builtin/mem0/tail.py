@@ -38,7 +38,7 @@ async def tail_provision(
 ) -> ProvisionResult:
     return await file_read_provision(
         accessor, paths,
-        "tail " + " ".join(p.original if isinstance(p, PathSpec) else p
+        "tail " + " ".join(p.display if isinstance(p, PathSpec) else p
                            for p in paths))
 
 

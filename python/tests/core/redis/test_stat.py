@@ -43,7 +43,8 @@ async def accessor():
 
 @pytest.mark.asyncio
 async def test_stat_root(accessor):
-    result = await stat(accessor, PathSpec(original="/", directory="/"))
+    result = await stat(accessor,
+                        PathSpec(resource_path="", virtual="/", directory="/"))
     assert result.type == FileType.DIRECTORY
     assert result.name == "/"
 
@@ -51,7 +52,10 @@ async def test_stat_root(accessor):
 @pytest.mark.asyncio
 async def test_stat_file(accessor):
     result = await stat(
-        accessor, PathSpec(original="/hello.txt", directory="/hello.txt"))
+        accessor,
+        PathSpec(resource_path="hello.txt",
+                 virtual="/hello.txt",
+                 directory="/hello.txt"))
     assert result.name == "hello.txt"
     assert result.size == 11
     assert result.type == FileType.TEXT
@@ -59,7 +63,9 @@ async def test_stat_file(accessor):
 
 @pytest.mark.asyncio
 async def test_stat_directory(accessor):
-    result = await stat(accessor, PathSpec(original="/sub", directory="/sub"))
+    result = await stat(
+        accessor,
+        PathSpec(resource_path="sub", virtual="/sub", directory="/sub"))
     assert result.type == FileType.DIRECTORY
     assert result.name == "sub"
     assert result.size is None
@@ -68,19 +74,27 @@ async def test_stat_directory(accessor):
 @pytest.mark.asyncio
 async def test_stat_not_found(accessor):
     with pytest.raises(FileNotFoundError):
-        await stat(accessor, PathSpec(original="/nope", directory="/nope"))
+        await stat(
+            accessor,
+            PathSpec(resource_path="nope", virtual="/nope", directory="/nope"))
 
 
 @pytest.mark.asyncio
 async def test_stat_json_file(accessor):
     result = await stat(
-        accessor, PathSpec(original="/data.json", directory="/data.json"))
+        accessor,
+        PathSpec(resource_path="data.json",
+                 virtual="/data.json",
+                 directory="/data.json"))
     assert result.type == FileType.JSON
     assert result.size == 16
 
 
 @pytest.mark.asyncio
 async def test_stat_image_file(accessor):
-    result = await stat(accessor,
-                        PathSpec(original="/img.png", directory="/img.png"))
+    result = await stat(
+        accessor,
+        PathSpec(resource_path="img.png",
+                 virtual="/img.png",
+                 directory="/img.png"))
     assert result.type == FileType.IMAGE_PNG

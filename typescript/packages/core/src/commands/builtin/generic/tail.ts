@@ -12,10 +12,11 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { cacheAwareStreamEager } from '../../../cache/read_through.ts'
 import { IOResult, materialize, type ByteSource } from '../../../io/types.ts'
 import type { PathSpec } from '../../../types.ts'
 import type { CommandFnResult, CommandOpts } from '../../config.ts'
-import { countNewlines, parseN, tailBytes } from '../tail_helper.ts'
+import { countNewlines, numberFlagError, parseN, tailBytes } from '../tail_helper.ts'
 import { readStdinAsync } from '../utils/stream.ts'
 
 const ENC = new TextEncoder()
@@ -40,8 +41,11 @@ export async function tailGeneric(
   opts: CommandOpts,
   stream: Stream,
 ): Promise<CommandFnResult> {
+  stream = cacheAwareStreamEager(stream)
   const nRaw = typeof opts.flags.n === 'string' ? opts.flags.n : null
   const cRaw = typeof opts.flags.c === 'string' ? opts.flags.c : null
+  const numErr = numberFlagError('tail', nRaw, cRaw)
+  if (numErr !== null) return [null, new IOResult({ exitCode: 1, stderr: ENC.encode(numErr) })]
   const qFlag = opts.flags.q === true
   const vFlag = opts.flags.v === true
   const [lines, plusMode] = parseN(nRaw)
@@ -56,15 +60,15 @@ export async function tailGeneric(
       if (p === undefined) continue
       const raw = await materialize(stream(p))
       if (showHeaders) {
-        const header = i > 0 ? `\n==> ${p.original} <==\n` : `==> ${p.original} <==\n`
+        const header = i > 0 ? `\n==> ${p.display} <==\n` : `==> ${p.display} <==\n`
         chunks.push(ENC.encode(header))
       }
       if (bytesMode !== null) {
         chunks.push(bytesMode === 0 ? new Uint8Array(0) : raw.slice(-bytesMode))
-        if (bytesMode >= raw.byteLength) cache.push(p.original)
+        if (bytesMode >= raw.byteLength) cache.push(p.virtual)
       } else {
         chunks.push(tailBytes(raw, lines, null, plusMode))
-        if (!plusMode && lines >= countNewlines(raw)) cache.push(p.original)
+        if (!plusMode && lines >= countNewlines(raw)) cache.push(p.virtual)
       }
     }
     const out: ByteSource = concat(chunks)

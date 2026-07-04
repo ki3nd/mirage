@@ -12,9 +12,10 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { rekey } from '../../../utils/key_prefix.ts'
 import type { IndexCacheStore } from '../../../cache/index/store.ts'
 import { IOResult, type ByteSource } from '../../../io/types.ts'
-import type { PathSpec } from '../../../types.ts'
+import { PathSpec } from '../../../types.ts'
 import type { CommandFnResult } from '../../config.ts'
 import {
   backendKeyDefault,
@@ -24,19 +25,30 @@ import {
   type BackendKeyFn,
   type StatFn,
 } from '../utils/copy.ts'
+import { rstripSlash } from '../../../utils/slash.ts'
+import { cpWalk, type CpPrimitives } from './cp.ts'
 
 const ENC = new TextEncoder()
 
 type RenameFn = (src: PathSpec, target: PathSpec) => Promise<void>
 
+// Low-level primitives for the no-native-rename path (cross-mount): the source
+// tree is copied (parents first) then removed (children first), mirroring the
+// Python mv generic. Backends that inject a native rename never use these.
+export interface MvPrimitives extends CpPrimitives {
+  unlink: (p: PathSpec) => Promise<void>
+  rmdir: (p: PathSpec) => Promise<void>
+}
+
 export async function mvGeneric(
   paths: PathSpec[],
-  rename: RenameFn,
+  rename: RenameFn | undefined,
   stat: StatFn,
   noClobber: boolean,
   verbose: boolean,
   index?: IndexCacheStore,
   backendKey?: BackendKeyFn,
+  prim?: MvPrimitives,
 ): Promise<CommandFnResult> {
   const keyOf = backendKey ?? backendKeyDefault
   const sources = paths.slice(0, -1)
@@ -48,24 +60,49 @@ export async function mvGeneric(
   const errors: string[] = []
   for (const [src, target] of copyTargets(sources, dst, dstIsDir)) {
     if (!(await pathExists(stat, src))) {
-      errors.push(`mv: cannot stat '${src.original}': No such file or directory`)
+      errors.push(`mv: cannot stat '${src.virtual}': No such file or directory`)
       continue
     }
     if (keyOf(src) === keyOf(target)) {
-      errors.push(`mv: '${src.original}' and '${target.original}' are the same file`)
+      errors.push(`mv: '${src.virtual}' and '${target.virtual}' are the same file`)
       continue
     }
     if (keyOf(target).startsWith(keyOf(src) + '/')) {
       errors.push(
-        `mv: cannot move '${src.original}' to a subdirectory of itself, '${target.original}'`,
+        `mv: cannot move '${src.virtual}' to a subdirectory of itself, '${target.virtual}'`,
       )
       continue
     }
     if (noClobber && (await pathExists(stat, target))) continue
-    await rename(src, target)
-    writes[src.stripPrefix] = new Uint8Array()
-    writes[target.stripPrefix] = new Uint8Array()
-    if (verbose) lines.push(`'${src.original}' -> '${target.original}'`)
+    if (rename === undefined && prim !== undefined) {
+      const srcBase = rstripSlash(src.mountPath)
+      const dstBase = rstripSlash(target.mountPath)
+      const entries = await cpWalk(prim.readdir, stat, src, index)
+      for (const { path: entry, isDir } of entries) {
+        const entryDst = dstBase + entry.slice(srcBase.length)
+        const entryDstSpec = PathSpec.fromStrPath(entryDst)
+        if (isDir) {
+          if (!(await isDirectory(stat, entryDstSpec, index))) await prim.mkdir(entryDstSpec)
+        } else {
+          await prim.write(entryDstSpec, await prim.readBytes(PathSpec.fromStrPath(entry)))
+        }
+      }
+      for (let i = entries.length - 1; i >= 0; i -= 1) {
+        const node = entries[i]
+        if (node === undefined) continue
+        const spec = PathSpec.fromStrPath(
+          node.path,
+          rekey(src.virtual, src.resourcePath, node.path),
+        )
+        if (node.isDir) await prim.rmdir(spec)
+        else await prim.unlink(spec)
+      }
+    } else if (rename !== undefined) {
+      await rename(src, target)
+    }
+    writes[src.mountPath] = new Uint8Array()
+    writes[target.mountPath] = new Uint8Array()
+    if (verbose) lines.push(`'${src.virtual}' -> '${target.virtual}'`)
   }
   const output: ByteSource | null = lines.length > 0 ? ENC.encode(lines.join('\n') + '\n') : null
   const stderr = errors.length > 0 ? ENC.encode(errors.join('\n') + '\n') : null

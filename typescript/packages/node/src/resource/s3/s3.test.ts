@@ -12,7 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { PathSpec } from '@struktoai/mirage-core'
+import { PathSpec, mountKey } from '@struktoai/mirage-core'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { S3Resource } from './s3.ts'
 import type { S3Config } from './config.ts'
@@ -29,8 +29,8 @@ const config: S3Config = {
   forcePathStyle: true,
 }
 
-function mkPath(original: string, prefix = ''): PathSpec {
-  return new PathSpec({ original, directory: original, prefix })
+function mkPath(virtual: string, prefix = ''): PathSpec {
+  return new PathSpec({ virtual, directory: virtual, resourcePath: mountKey(virtual, prefix) })
 }
 
 const DEC = new TextDecoder()
@@ -212,14 +212,11 @@ describe('S3Resource (mocked integration)', () => {
       expect(txts.sort()).toEqual(['/find/a.txt', '/find/c.txt'])
     })
 
-    // Skipped pending strukto-ai/mirage#318: a -size filter must treat a
-    // directory's size as 0 and filter directories like files (so the start
-    // directory is excluded under minSize). That fix is tracked separately.
-    it.skip('find with minSize skips small files', async () => {
+    it('find with minSize skips small files, letting directories pass', async () => {
       await resource.writeFile(mkPath('/sz/small'), ENC.encode('x'))
       await resource.writeFile(mkPath('/sz/big'), ENC.encode('x'.repeat(100)))
       const results = await resource.find(mkPath('/sz/'), { minSize: 10 })
-      expect(results).toEqual(['/sz/big'])
+      expect(results).toEqual(['/sz', '/sz/big'])
     })
   })
 })

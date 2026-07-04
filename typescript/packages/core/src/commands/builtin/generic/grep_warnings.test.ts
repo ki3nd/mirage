@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { materialize, type IOResult } from '../../../io/types.ts'
 import { FileStat, FileType, PathSpec } from '../../../types.ts'
@@ -24,7 +25,12 @@ const ENC = new TextEncoder()
 const DEC = new TextDecoder()
 
 function spec(path: string): PathSpec {
-  return new PathSpec({ original: path, directory: path, resolved: false, prefix: '' })
+  return new PathSpec({
+    virtual: path,
+    directory: path,
+    resolved: false,
+    resourcePath: mountKey(path, ''),
+  })
 }
 
 function opts(flags: Record<string, string | boolean | string[]>): CommandOpts {
@@ -40,19 +46,19 @@ function opts(flags: Record<string, string | boolean | string[]>): CommandOpts {
 const stat = (p: PathSpec): Promise<FileStat> =>
   Promise.resolve(
     new FileStat({
-      name: p.original.split('/').pop() ?? '',
-      type: p.original === '/data' ? FileType.DIRECTORY : FileType.TEXT,
+      name: p.virtual.split('/').pop() ?? '',
+      type: p.virtual === '/data' ? FileType.DIRECTORY : FileType.TEXT,
     }),
   )
 const readdir = (p: PathSpec): Promise<string[]> =>
-  Promise.resolve(p.original === '/data' ? ['/data/a.txt', '/data/bad.txt'] : [])
+  Promise.resolve(p.virtual === '/data' ? ['/data/a.txt', '/data/bad.txt'] : [])
 
 async function* good(): AsyncIterable<Uint8Array> {
   await Promise.resolve()
   yield ENC.encode('alice\n')
 }
 function stream(p: PathSpec): AsyncIterable<Uint8Array> {
-  if (p.original === '/data/bad.txt') throw new Error('boom')
+  if (p.virtual === '/data/bad.txt') throw new Error('boom')
   return good()
 }
 
@@ -96,43 +102,5 @@ describe('grepGeneric recursive warnings', () => {
     expect(await decode(out)).toBe('')
     expect(DEC.decode(io.stderr as Uint8Array)).toBe('grep: /data: Is a directory\n')
     expect(io.exitCode).toBe(1)
-  })
-})
-
-describe('grepGeneric scopeCheck', () => {
-  it('prepends a scope warning to stderr', async () => {
-    const scopeCheck = (): Promise<string | null> => Promise.resolve('scanning 5 files under /data')
-    const [out, io] = (await grepGeneric(
-      'grep',
-      [spec('/data')],
-      ['alice'],
-      opts({ r: true }),
-      stat,
-      readdir,
-      stream,
-      scopeCheck,
-    )) as [GrepOut, IOResult]
-    expect(await decode(out)).toBe('/data/a.txt:alice\n')
-    expect(DEC.decode(io.stderr as Uint8Array)).toBe(
-      'scanning 5 files under /data\ngrep: /data/bad.txt: boom\n',
-    )
-  })
-
-  it('returns exit 1 with the message when scopeCheck throws', async () => {
-    const scopeCheck = (): Promise<string | null> =>
-      Promise.reject(new Error('scope too large: 99 files under /data'))
-    const [out, io] = (await grepGeneric(
-      'grep',
-      [spec('/data')],
-      ['alice'],
-      opts({ r: true }),
-      stat,
-      readdir,
-      stream,
-      scopeCheck,
-    )) as [GrepOut, IOResult]
-    expect(out).toBeNull()
-    expect(io.exitCode).toBe(1)
-    expect(DEC.decode(io.stderr as Uint8Array)).toBe('scope too large: 99 files under /data')
   })
 })

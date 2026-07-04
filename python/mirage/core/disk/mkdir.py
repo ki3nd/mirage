@@ -17,6 +17,7 @@ from pathlib import Path
 import aiofiles.os
 
 from mirage.accessor.disk import DiskAccessor
+from mirage.cache.context import invalidate_after_write
 from mirage.types import PathSpec
 
 
@@ -31,9 +32,11 @@ async def mkdir(accessor: DiskAccessor,
                 path: PathSpec,
                 parents: bool = False) -> None:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     p = _resolve(accessor.root, path)
     if parents:
         await aiofiles.os.makedirs(p, exist_ok=True)
@@ -42,3 +45,4 @@ async def mkdir(accessor: DiskAccessor,
             await aiofiles.os.mkdir(p)
         except FileExistsError:
             pass
+    await invalidate_after_write(path)

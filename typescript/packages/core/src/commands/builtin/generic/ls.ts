@@ -12,12 +12,14 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../../utils/key_prefix.ts'
 import { IOResult, type ByteSource } from '../../../io/types.ts'
 import { FileType, PathSpec, type FileStat } from '../../../types.ts'
 import type { CommandFnResult, CommandOpts } from '../../config.ts'
 import { formatLsLong } from '../utils/formatting.ts'
 import { gnuStrerror } from '../../../utils/errors.ts'
 import { rstripSlash } from '../../../utils/slash.ts'
+import { rebaseOne } from '../../../utils/path.ts'
 import { formatRecords } from '../utils/output.ts'
 
 type Readdir = (p: PathSpec) => Promise<string[]>
@@ -31,10 +33,10 @@ interface WalkOpts {
 
 function childSpec(entryPath: string, prefix: string): PathSpec {
   return new PathSpec({
-    original: entryPath,
+    virtual: entryPath,
     directory: entryPath,
     resolved: false,
-    prefix,
+    resourcePath: mountKey(entryPath, prefix),
   })
 }
 
@@ -75,6 +77,19 @@ function sortStats(
   return sorted
 }
 
+// A file operand whose readdir came back empty: backends without real
+// directories (e.g. S3) list the "<file>/" prefix and find nothing rather than
+// raising ENOTDIR. Return the stat only when it is a non-directory, so an empty
+// directory still lists as empty. Mirrors Python ls `_file_entry`.
+async function fileEntry(stat: Stat, path: PathSpec): Promise<FileStat | null> {
+  try {
+    const s = await stat(path)
+    return s.type !== FileType.DIRECTORY ? s : null
+  } catch {
+    return null
+  }
+}
+
 async function listDir(
   readdir: Readdir,
   stat: Stat,
@@ -82,7 +97,9 @@ async function listDir(
   all: boolean,
 ): Promise<FileStat[]> {
   const entries = await readdir(dir)
-  const stats = await Promise.all(entries.map((p) => stat(childSpec(p, dir.prefix))))
+  const stats = await Promise.all(
+    entries.map((p) => stat(childSpec(p, mountPrefixOf(dir.virtual, dir.resourcePath)))),
+  )
   return all ? stats : stats.filter((s) => !s.name.startsWith('.'))
 }
 
@@ -101,16 +118,23 @@ async function walkGrouped(
     const msg =
       gnuStrerror((err as { code?: string }).code) ??
       (err instanceof Error ? err.message : String(err))
-    warnings.push(`ls: cannot access '${dir.original}': ${msg}`)
+    warnings.push(`ls: cannot access '${dir.display}': ${msg}`)
     return
   }
   const sorted = sortStats(stats, opts.sortBy, opts.reverse)
   groups.push([dir, sorted])
   for (const s of sorted) {
     if (s.type === FileType.DIRECTORY) {
-      const base = rstripSlash(dir.original)
+      const base = rstripSlash(dir.virtual)
       const childPath = `${base}/${s.name}`
-      await walkGrouped(readdir, stat, childSpec(childPath, dir.prefix), opts, groups, warnings)
+      await walkGrouped(
+        readdir,
+        stat,
+        childSpec(childPath, mountPrefixOf(dir.virtual, dir.resourcePath)),
+        opts,
+        groups,
+        warnings,
+      )
     }
   }
 }
@@ -126,10 +150,10 @@ export async function lsGeneric(
       ? paths
       : [
           new PathSpec({
-            original: opts.cwd,
+            virtual: opts.cwd,
             directory: opts.cwd,
             resolved: false,
-            prefix: opts.mountPrefix ?? '',
+            resourcePath: mountKey(opts.cwd, opts.mountPrefix ?? ''),
           }),
         ]
   const long = opts.flags.args_l === true && opts.flags.args_1 !== true
@@ -153,7 +177,7 @@ export async function lsGeneric(
         const msg =
           gnuStrerror((err as { code?: string }).code) ??
           (err instanceof Error ? err.message : String(err))
-        warnings.push(`ls: cannot access '${p.original}': ${msg}`)
+        warnings.push(`ls: cannot access '${p.display}': ${msg}`)
       }
     }
     appendListing(collected, long, human, classify, lines)
@@ -177,7 +201,12 @@ export async function lsGeneric(
       if (group === undefined) continue
       const [dirSpec, entries] = group
       if (i > 0) lines.push('')
-      lines.push(`${dirSpec.original}:`)
+      const owner =
+        targets.find((t) => {
+          const b = rstripSlash(t.virtual)
+          return dirSpec.virtual === b || dirSpec.virtual.startsWith(b + '/')
+        }) ?? dirSpec
+      lines.push(`${rebaseOne(dirSpec.virtual, owner.virtual, owner.display)}:`)
       appendListing(entries, long, human, classify, lines)
     }
     const out: ByteSource = formatRecords(lines)
@@ -200,9 +229,13 @@ export async function lsGeneric(
         const msg =
           gnuStrerror((err as { code?: string }).code) ??
           (err instanceof Error ? err.message : String(err))
-        warnings.push(`ls: cannot access '${p.original}': ${msg}`)
+        warnings.push(`ls: cannot access '${p.display}': ${msg}`)
         continue
       }
+    }
+    if (stats.length === 0) {
+      const fe = await fileEntry(stat, p)
+      if (fe !== null) stats = [fe]
     }
     appendListing(sortStats(stats, sortBy, reverse), long, human, classify, lines)
   }

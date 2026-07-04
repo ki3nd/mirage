@@ -78,6 +78,27 @@ SEED_FILES = {
     "guard\n",
     "/data/guard/sub/s.txt":
     "inner\n",
+    "/data/anchors.txt":
+    "#123\nls\n#456\nfoo bar\n",
+    "/data/multi.txt":
+    "oo\noo\noo\n",
+    "/data/oooo.txt":
+    "oooo\noooo\n",
+    # dedicated clean subtree for traversal-display cases (no other case
+    # writes under it, so listings/walks are deterministic)
+    "/data/disptree/x.txt":
+    "nested\ncontent\n",
+    "/data/disptree/d/y.txt":
+    "deep\n",
+    # patch round-trip: a unified diff whose hunk has a leading context line,
+    # so an applier that anchors on the hunk start instead of walking context
+    # corrupts the first line. The diff and target are seeded; the cases below
+    # apply, re-apply with -N, and reverse it.
+    "/data/poem.txt":
+    "roses are red\nviolets are blue\nsugar is sweet\n",
+    "/data/poem.diff": ("--- a/poem.txt\n+++ b/poem.txt\n@@ -1,3 +1,3 @@\n"
+                        " roses are red\n-violets are blue\n"
+                        "+violets are dark\n sugar is sweet\n"),
 }
 
 CASES: list[tuple[str, str]] = [
@@ -176,6 +197,8 @@ CASES: list[tuple[str, str]] = [
     ("find_type_f", "find /data -type f"),
     ("ls", "ls /data/"),
     ("ls_1", "ls -1 /data/"),
+    ("ls_file", "ls /data/a.txt"),
+    ("ls_glob", "ls /data/*.txt"),
 
     # ----- formatting -----
     ("expand", "cat /data/tabbed.txt | expand"),
@@ -323,6 +346,83 @@ CASES: list[tuple[str, str]] = [
     ("sed_replace_n", "sed 's/o/O/2' /data/a.txt"),
     ("sed_delete_pattern", "sed '/foo/d' /data/a.txt"),
     ("sed_append", "sed '2a\\\nINSERTED' /data/a.txt"),
+    # Anchored ^/$ must apply per line (strukto-ai/mirage#326).
+    ("sed_anchor_sub", "cat /data/anchors.txt | sed 's/^#[0-9]*$/#TS/'"),
+    ("sed_anchor_sub_E", "cat /data/anchors.txt | sed -E 's/^#[0-9]+$/#TS/'"),
+    ("sed_anchor_sub_g", "cat /data/anchors.txt | sed 's/^#[0-9]*$/#TS/g'"),
+    ("sed_anchor_addr_del", "cat /data/anchors.txt | sed '/^#[0-9]*$/d'"),
+    # Same per-line semantics must hold when sed reads a file argument
+    # directly (single-`s` fast-path), not just stdin (strukto-ai/mirage#326).
+    ("sed_anchor_sub_file", "sed 's/^#[0-9]*$/#TS/' /data/anchors.txt"),
+    # Non-global s/// replaces the first match on *each* line, not just the
+    # first match in the whole file.
+    ("sed_firstmatch_file", "sed 's/o/O/' /data/multi.txt"),
+    # s/// numeric count (Nth occurrence) and Nth-onward (Ng), per line.
+    ("sed_count_nth", "sed 's/o/O/2' /data/oooo.txt"),
+    ("sed_count_nth_g", "sed 's/o/O/2g' /data/oooo.txt"),
+    # s///p prints the pattern space on substitution (here with -n).
+    ("sed_sub_p", "cat /data/oooo.txt | sed -n 's/o/O/p'"),
+    # y/// transliterate, and the change command (single address + range).
+    ("sed_y", "echo hello | sed 'y/el/ip/'"),
+    ("sed_c_addr", "sed '2cCHANGED' /data/a.txt"),
+    ("sed_c_range", "sed '2,4cMID' /data/a.txt"),
+    # BRE (default): \( \) groups, \+ one-or-more, \| alternation (GNU exts);
+    # bare + is literal. ERE via -E / -r: bare () + | are special.
+    ("sed_bre_group", r"echo foo | sed 's/\(foo\)/[\1]/'"),
+    ("sed_bre_plus", r"echo aaab | sed 's/a\+/X/'"),
+    ("sed_bre_alt", r"echo cat | sed 's/cat\|dog/PET/'"),
+    ("sed_ere_group", r"echo foo | sed -E 's/(foo)/[\1]/'"),
+    ("sed_ere_plus", "echo aaab | sed -E 's/a+/X/'"),
+    ("sed_r_alias", "echo aaab | sed -r 's/a+/X/'"),
+    # Multiple -e expressions apply in sequence; -e with a file argument.
+    ("sed_multi_e", "echo a | sed -e 's/a/b/' -e 's/b/c/'"),
+    ("sed_e_file", "sed -e s/world/EARTH/ /data/a.txt"),
+    # -f reads the script from a file (script lives on the data mount). The
+    # script file is created and removed inside the case so directory
+    # listings stay unpolluted.
+    ("sed_f_file", "echo 's/world/EARTH/' | tee /data/prog.sed > /dev/null "
+     "&& sed -f /data/prog.sed /data/a.txt && rm /data/prog.sed"),
+    ("sed_f_multi",
+     "echo 's/world/EARTH/;s/foo/FOO/' | tee /data/prog.sed > /dev/null "
+     "&& sed -f /data/prog.sed /data/a.txt && rm /data/prog.sed"),
+    ("sed_ef_combined", "echo 's/foo/FOO/' | tee /data/prog.sed > /dev/null "
+     "&& sed -e s/world/EARTH/ -f /data/prog.sed /data/a.txt "
+     "&& rm /data/prog.sed"),
+    ("sed_f_stdin", "echo 's/world/EARTH/' | tee /data/prog.sed > /dev/null "
+     "&& cat /data/a.txt | sed -f /data/prog.sed && rm /data/prog.sed"),
+    # Broader GNU sed surface: & whole-match, s flags, addresses, hold/branch,
+    # multi-command, alt delimiters, a/i/c forms.
+    ("sed_amp", "sed 's/world/[&]/' /data/a.txt"),
+    ("sed_amp_literal", r"sed 's/world/[\&]/' /data/a.txt"),
+    ("sed_sub_i", "sed 's/hello/HI/i' /data/mixed.txt"),
+    ("sed_delim_pipe", "sed 's|o|O|g' /data/a.txt"),
+    ("sed_d_range", "sed '2,3d' /data/a.txt"),
+    ("sed_n_2p", "sed -n '2p' /data/a.txt"),
+    ("sed_n_lastp", "sed -n '$p' /data/a.txt"),
+    ("sed_insert", "sed '2iINSERTED' /data/a.txt"),
+    ("sed_change_all", "sed 'cX' /data/a.txt"),
+    ("sed_change_regex", "sed '/world/cCHANGED' /data/a.txt"),
+    ("sed_quit", "sed '2q' /data/a.txt"),
+    ("sed_double_space", "sed 'G' /data/a.txt"),
+    ("sed_n_join", r"sed 'N;s/\n/ /' /data/a.txt"),
+    ("sed_block", "sed '/world/{s/world/W/;s/W/X/}' /data/a.txt"),
+    ("sed_semicolon", "sed 's/o/0/;s/a/A/' /data/a.txt"),
+    ("sed_backref_E", r"sed -E 's/(section)([0-9])/\2\1/' /data/sections.txt"),
+    # address negation: addr!cmd applies to lines the address does NOT select.
+    ("sed_neg_line", "sed '2!d' /data/a.txt"),
+    ("sed_neg_regex", "sed '/world/!d' /data/a.txt"),
+    ("sed_neg_lastp", "sed -n '$!p' /data/a.txt"),
+    ("sed_neg_range", "sed '1,3!s/./X/' /data/a.txt"),
+    # multi-line pattern space: join-all idiom, hold accumulation, escaped
+    # delimiter, and preservation of a missing final newline.
+    ("sed_join_all", r"sed ':a;N;$!ba;s/\n/,/g' /data/a.txt"),
+    ("sed_hold_accum", "sed -n 'H;${x;p}' /data/a.txt"),
+    ("sed_escaped_delim", r"echo 'a/b' | sed 's/a\/b/c/'"),
+    ("sed_no_final_nl", "sed 's/no/NO/' /data/no_nl.txt"),
+    # a case arm runs every statement up to its ;; terminator
+    ("case_multi_arm", "case x in x) echo one; echo two;; esac"),
+    ("case_multi_arm_default",
+     "case y in x) echo one;; *) echo fall; echo through;; esac"),
 
     # ----- tr advanced -----
     ("tr_squeeze", "echo aaabbbccc | tr -s a-z"),
@@ -393,6 +493,9 @@ CASES: list[tuple[str, str]] = [
     # ----- find more -----
     ("find_empty", "find /data -empty"),
     ("find_not_name", 'find /data -not -name "*.txt"'),
+    ("find_name_start", "find /data -name data"),
+    ("find_maxdepth_zero", "find /data -maxdepth 0"),
+    ("find_mindepth_zero", "find /data -mindepth 0 -type d"),
     ("find_size_lt", "find /data -size -5c"),
     ("find_depth", "find /data -depth -type f"),
     ("find_mtime", "find /data -mtime +0 -o -mtime -1"),
@@ -406,6 +509,16 @@ CASES: list[tuple[str, str]] = [
     ("diff_same", "diff /data/a.txt /data/a.txt"),
     ("diff_differ", "diff /data/a.txt /data/b.txt"),
     ("diff_u", "diff -u /data/sorted_a.txt /data/sorted_b.txt"),
+    ("diff_recursive", "mkdir -p /data/dr/x/sub /data/dr/y/sub"
+     " && echo aaa | tee /data/dr/x/a.txt > /dev/null"
+     " && echo AAA | tee /data/dr/y/a.txt > /dev/null"
+     " && echo keep | tee /data/dr/x/c.txt > /dev/null"
+     " && echo keep | tee /data/dr/y/c.txt > /dev/null"
+     " && echo deep1 | tee /data/dr/x/sub/d.txt > /dev/null"
+     " && echo deep2 | tee /data/dr/y/sub/d.txt > /dev/null"
+     " && echo L | tee /data/dr/x/leftonly.txt > /dev/null"
+     " && echo R | tee /data/dr/y/rightonly.txt > /dev/null"
+     " && diff -r /data/dr/x /data/dr/y"),
     ("cmp_same", "cmp /data/a.txt /data/a.txt"),
     ("cmp_differ", "cmp /data/a.txt /data/b.txt"),
 
@@ -527,6 +640,69 @@ CASES: list[tuple[str, str]] = [
     ("root_create_mkdir", "mkdir /data/rootdir && find /data/rootdir -type d"),
     ("root_create_basename", "basename /data/at_root.txt"),
     ("root_create_dirname", "dirname /data/at_root.txt"),
+
+    # ----- cwd / relative paths / tilde / OLDPWD (GNU cd + pwd) -----
+    # Each case is wrapped in a subshell so cwd/env changes do not leak
+    # into later cases (the suite runs on one persistent session).
+    ("cwd_pwd_root", "(pwd)"),
+    ("cwd_cd_mount_pwd", "(cd /data && pwd)"),
+    ("cwd_cd_subdir_pwd", "(cd /data/sub && pwd)"),
+    ("cwd_cd_dotdot_pwd", "(cd /data/sub && cd .. && pwd)"),
+    ("cwd_rel_cat", "(cd /data && cat a.txt)"),
+    ("cwd_rel_dot_cat", "(cd /data && cat ./a.txt)"),
+    ("cwd_rel_subdir_cat", "(cd /data && cat sub/nested.txt)"),
+    ("cwd_rel_dotdot_cat", "(cd /data/sub && cat ../a.txt)"),
+    ("cwd_rel_csplit", "(cd /data/sub && csplit -s -f cs_ nested.txt 2"
+     " && cat cs_00 cs_01 && rm cs_00 cs_01)"),
+    ("cwd_echo_pwd", "(cd /data/sub && echo $PWD)"),
+    ("cwd_echo_home_unset", '(echo "[$HOME]")'),
+    ("cwd_cd_oldpwd", "(cd /data && cd /data/sub && echo $OLDPWD)"),
+    ("cwd_cd_dash", "(cd /data && cd /data/sub && cd -)"),
+    ("cwd_cd_dash_pwd",
+     "(cd /data && cd /data/sub && cd - > /dev/null && pwd)"),
+    ("cwd_home_cd_tilde", "(export HOME=/data && cd ~ && pwd)"),
+    ("cwd_home_echo", "(export HOME=/data && echo $HOME)"),
+    ("cwd_tilde_cat", "(export HOME=/data && cat ~/a.txt)"),
+    ("cwd_tilde_subdir_cat", "(export HOME=/data && cat ~/sub/nested.txt)"),
+    # GNU cd: leading // collapses, -L/-P/-- options, $CDPATH search.
+    ("cwd_cd_double_slash", "(cd //data && pwd)"),
+    ("cwd_cd_phys_flag", "(cd -P /data/sub && pwd)"),
+    ("cwd_cd_log_flag", "(cd -L /data && pwd)"),
+    ("cwd_cd_dashdash", "(cd -- /data && pwd)"),
+    ("cwd_cd_cdpath", "(export CDPATH=/data && cd sub && pwd)"),
+
+    # ----- subshell isolation vs inheritance (GNU bash ( ... )) -----
+    # A subshell inherits all parent state but its mutations (vars, export,
+    # cd, functions, positional params) must not leak back to the parent.
+    ("subshell_var_isolated", "(x=1; (x=2); echo $x)"),
+    ("subshell_var_inherit", "(x=7; (echo $x))"),
+    ("subshell_export_isolated", "(export Z=9); echo [$Z]"),
+    ("subshell_func_redef", "(f(){ echo A; }; (f(){ echo B; }); f)"),
+    ("subshell_func_no_leak",
+     "(nofn(){ echo x; }); nofn 2>/dev/null || echo gone"),
+    ("subshell_positional_isolated", "(set -- a b c; (set -- x); echo $#)"),
+    ("subshell_positional_inherit", "(set -- a b; (echo $1 $2))"),
+    ("subshell_cd_no_leak", "(cd /data); pwd"),
+    ("subshell_nested_cd", "(cd /data && (cd /data/sub) && pwd)"),
+
+    # ----- relative-path display: commands echo the arg as typed (GNU),
+    # not the resolved absolute path -----
+    ("disp_wc_rel", "(cd /data && wc -l a.txt)"),
+    ("disp_wc_multi", "(cd /data && wc -l a.txt b.txt)"),
+    ("disp_wc_dotslash", "(cd /data && wc -l ./a.txt)"),
+    ("disp_wc_dotdot", "(cd /data/sub && wc -l ../a.txt)"),
+    ("disp_grep_multi", "(cd /data && grep world a.txt b.txt)"),
+    ("disp_md5_rel", "(cd /data && md5 a.txt)"),
+    ("disp_stat_name", "(cd /data && stat -c %n a.txt)"),
+    ("disp_find_subdir", "(cd /data && find sub -name nested.txt)"),
+    ("disp_head_multi", "(cd /data && head -n 1 a.txt b.txt)"),
+    ("disp_grep_files", "(cd /data && grep -l world a.txt b.txt)"),
+    # traversal commands preserve the path form relative to the root
+    ("disp_grep_r", "(cd /data && grep -r nested disptree)"),
+    ("disp_rg_r", "(cd /data && rg nested disptree)"),
+    ("disp_ls_recursive", "(cd /data && ls -R disptree)"),
+    ("disp_find_root", "(cd /data && find disptree)"),
+
     # ----- history: recorder views over whatever observer store -----
     ("history_last_two", "history 2"),
     ("bash_history_tail", "grep -v '^#' /.bash_history | tail -n 3"),
@@ -535,14 +711,35 @@ CASES: list[tuple[str, str]] = [
     ("bash_history_after_find", "grep -v '^#' /.bash_history | tail -n 1"),
     # GNU bash histfile layout: a `#<epoch>` comment line per command.
     # The timestamp is volatile, so normalize it to `#TS` to assert the
-    # structure deterministically. Uses the unanchored pattern because
-    # TS sed mishandles `^...$` anchors (strukto-ai/mirage#326); revert to
-    # `s/^#[0-9]*$/#TS/` once that is fixed.
+    # structure deterministically. The anchored pattern only matches lines
+    # that consist solely of `#<digits>` (the timestamp comments).
     ("bash_history_format",
-     "cat /.bash_history | sed 's/#[0-9][0-9]*/#TS/' | tail -n 4"),
+     "cat /.bash_history | sed 's/^#[0-9]*$/#TS/' | tail -n 4"),
+    # gzip removes h.txt, the ls caches the listing, gunzip recreates h.txt:
+    # cat and the final ls must see the recreated file, not stale cache.
+    ("arch_gzip_interleaved_ls",
+     "mkdir -p /data/arch2 && echo two | tee /data/arch2/h.txt > /dev/null"
+     " && gzip /data/arch2/h.txt && ls /data/arch2"
+     " && gunzip /data/arch2/h.txt.gz && cat /data/arch2/h.txt"
+     " && ls /data/arch2"),
+
+    # ----- patch (apply / forward-only / reverse) -----
+    ("patch_apply",
+     "patch -p1 /data/poem.diff > /dev/null && cat /data/poem.txt"),
+    ("patch_n_noop",
+     "patch -N -p1 /data/poem.diff > /dev/null && cat /data/poem.txt"),
+    ("patch_reverse",
+     "patch -R -p1 /data/poem.diff > /dev/null && cat /data/poem.txt"),
 ]
 
 EXIT_CODE_CASES: list[tuple[str, str]] = [
+    # GNU cd error paths (stderr merged via 2>&1).
+    ("cwd_cd_too_many", "cd /data /data/sub 2>&1"),
+    ("cwd_cd_bad_opt", "cd -x /data 2>&1"),
+    ("cwd_cd_home_unset", "(unset HOME; cd) 2>&1"),
+    ("cwd_cd_quoted_tilde", "(cd /data && cd '~') 2>&1"),
+    # sed rejects a zero occurrence count (GNU: "may not be zero").
+    ("sed_count_zero", "sed 's/o/O/0'"),
     ("jq_no_filter_no_input", "jq"),
     ("jq_dot_no_input", 'jq "."'),
     ("tac_no_input", "tac"),
@@ -598,7 +795,7 @@ EXIT_CODE_CASES: list[tuple[str, str]] = [
     ("ln_create", "ln -s /data/sub/nested.txt /data/sub/link.txt"),
     ("zip_create", "zip /data/sub/arch.zip /data/sub/nested.txt"),
     ("lnzip_ls_after", "ls -1 /data/sub"),
-    ("ln_read_back", "cat /data/sub/link.txt"),
+    ("ln_read_back", "readlink /data/sub/link.txt"),
 
     # ----- trailing-newline pins (wc -c counts the final \n) -----
     ("nl_pin_du", "du /data/b.txt | wc -c"),
@@ -629,6 +826,28 @@ EXIT_CODE_CASES: list[tuple[str, str]] = [
     ("sleep_no_operand", "sleep"),
     ("sleep_negative", "sleep -1"),
     ("sleep_infinity", "sleep Infinity"),
+
+    # ----- symlink follow-on-read (namespace links) -----
+    ("sym_setup", "mkdir -p /data/symd && echo alpha > /data/symd/t.txt"),
+    ("sym_ln", "ln -s /data/symd/t.txt /data/symd/l.txt"),
+    ("sym_cat_follow", "cat /data/symd/l.txt"),
+    ("sym_grep_follow", "grep alpha /data/symd/l.txt"),
+    ("sym_write_through",
+     "echo beta > /data/symd/l.txt && cat /data/symd/t.txt"),
+    ("sym_ls_f", "ls -F /data/symd"),
+    ("sym_ls_long_arrow", "ls -l /data/symd | grep -- '->'"),
+    ("sym_dirlink_read", "ln -s /data/symd /data/dl && cat /data/dl/t.txt"),
+    ("sym_mv_rename",
+     "mv /data/symd/l.txt /data/symd/m.txt && readlink /data/symd/m.txt"),
+    ("sym_cp_follow",
+     "cp /data/symd/m.txt /data/symd/copy.txt && cat /data/symd/copy.txt"),
+    ("sym_rm_link", "rm /data/symd/m.txt && readlink /data/symd/m.txt 2>&1"),
+    ("sym_dangle_cat",
+     "ln -s /data/symd/none /data/symd/dangle && cat /data/symd/dangle 2>&1"),
+    ("sym_eloop_cat", "ln -s /data/lp2 /data/lp1 && ln -s /data/lp1 /data/lp2"
+     " && cat /data/lp1 2>&1"),
+    ("sym_cleanup", "rm /data/symd/dangle /data/lp1 /data/lp2 /data/dl"
+     " && rm -r /data/symd"),
 ]
 
 # Not-found errors must always show the full virtual path the user typed
@@ -643,6 +862,9 @@ NOT_FOUND_CASES: list[tuple[str, str]] = [
     ("nf_grep", "grep x /data/missing.txt"),
     ("nf_cat_nested", "cat /data/sub/missing.txt"),
     ("nf_cat_pipe", "cat /data/missing.txt | cat"),
+    ("nf_cat_rel", "(cd /data && cat missing.txt)"),
+    ("nf_cat_rel_subdir", "(cd /data && cat sub/missing.txt)"),
+    ("nf_grep_r_rel", "(cd /data && grep -r x missing)"),
 ]
 
 # Backend-agnostic not-found probe: every backend (whatever its mount prefix)
@@ -677,6 +899,8 @@ FIND_ARG_ERROR_CASES: list[tuple[str, str]] = [
     ("find_bad_size", "find /data -size abc"),
     ("find_empty_size", "find /data -size ''"),
     ("find_bad_mtime", "find /data -mtime abc"),
+    ("find_unknown_predicate", "find /data -regex '.*deep.*'"),
+    ("find_bogus_predicate", "find /data -boguspredicate"),
 ]
 
 SLEEP_CASES: list[tuple[str, str, float]] = [
@@ -684,6 +908,257 @@ SLEEP_CASES: list[tuple[str, str, float]] = [
     ("sleep_fraction", "sleep 0.2", 0.2),
     ("sleep_one", "sleep 1", 1.0),
 ]
+
+# Cross-mount coverage: every runner mounts a second resource of its own
+# backend at /data2, so reads, writes, links, and provision spanning two
+# mounts behave identically on every backend. Seeds happen inside the
+# section (tee), so the /data listings earlier in the battery stay
+# untouched.
+CROSS_MOUNT_CASES: list[tuple[str, str]] = [
+    ("xm_seed", "echo cross | tee /data2/xm.txt"),
+    ("xm_ls", "ls /data2"),
+    ("xm_cat_concat", "cat /data/a.txt /data2/xm.txt"),
+    ("xm_cp_over", "cp /data/a.txt /data2/xm_copy.txt"
+     " && cat /data2/xm_copy.txt"),
+    ("xm_cp_back", "cp /data2/xm.txt /data/xm_back.txt"
+     " && cat /data/xm_back.txt"),
+    ("xm_mv_over", "mv /data/xm_back.txt /data2/xm_moved.txt"
+     " && cat /data2/xm_moved.txt && ls /data2"),
+    ("xm_grep_multi", "grep -c s /data/a.txt /data2/xm.txt"),
+    ("xm_wc_multi", "wc -l /data/a.txt /data2/xm.txt"),
+    # du/md5/file reject multi-mount operands explicitly; pin the error
+    ("xm_du_multi_rejected", "du /data/b.txt /data2/xm.txt 2>&1"),
+    ("xm_find", "find /data2 -type f | sort"),
+    ("xm_pipe", "cat /data2/xm.txt | tr a-z A-Z"),
+    ("xm_ln_over", "ln -s /data/a.txt /data2/xm_link.txt"
+     " && cat /data2/xm_link.txt"),
+    ("xm_ln_readlink", "readlink /data2/xm_link.txt"),
+    ("xm_ln_back", "ln -s /data2/xm.txt /data/xm_rlink.txt"
+     " && cat /data/xm_rlink.txt"),
+    ("xm_link_grep", "grep -c cross /data/xm_rlink.txt"),
+    ("xm_cd_across", "(cd /data2 && cat xm.txt && cd /data && ls b.txt)"),
+]
+
+# Provision (dry-run cost estimates) must print identical numbers on every
+# backend: sizes come from seeded files, and the file cache is cleared first
+# so read-caching backends (s3, onedrive, nextcloud) report the same cold
+# numbers as non-caching ones (ram, disk, redis, ssh). Cache-hit flipping is
+# backend-dependent and covered by run_provision_cache_cases instead.
+PROVISION_CASES: list[tuple[str, str]] = [
+    # ----- whole-file readers (exact byte totals) -----
+    ("prov_cat", "cat /data/a.txt"),
+    ("prov_cat_multi", "cat /data/a.txt /data/b.txt"),
+    ("prov_wc", "wc -l /data/a.txt"),
+    ("prov_sort", "sort /data/numbers.txt"),
+    ("prov_md5", "md5 /data/b.txt"),
+    # ----- search family (worst-case full read) -----
+    ("prov_grep", "grep world /data/a.txt"),
+    ("prov_grep_multi", "grep hello /data/a.txt /data/mixed.txt"),
+    ("prov_rg", "rg world /data/a.txt"),
+    # ----- partial readers (range unless -c pins the bytes) -----
+    ("prov_head", "head /data/a.txt"),
+    ("prov_head_c", "head -c 5 /data/a.txt"),
+    ("prov_tail", "tail -n 1 /data/a.txt"),
+    # ----- metadata-only (op counts, no content bytes) -----
+    ("prov_ls", "ls /data"),
+    ("prov_find", 'find /data -name "*.txt"'),
+    ("prov_du", "du /data/a.txt"),
+    ("prov_stat", "stat /data/a.txt"),
+    # ----- jq (streamable jsonl reads a range, object reads it all) -----
+    ("prov_jq_object", 'jq ".name" /data/user.json'),
+    ("prov_jq_jsonl", 'jq ".id" /data/data.jsonl'),
+    # ----- honest degradation -----
+    ("prov_missing", "cat /data/missing.txt"),
+    ("prov_sed", "sed s/a/b/ /data/a.txt"),
+    ("prov_sed_inplace", "sed -i s/a/b/ /data/a.txt"),
+    ("prov_write", "tee /data/prov_out.txt"),
+    # ----- combinators -----
+    ("prov_pipe", "cat /data/a.txt | head -c 4"),
+    ("prov_pipe_floor", "grep world /data/a.txt | wc -l"),
+    ("prov_and", "cat /data/a.txt && cat /data/b.txt"),
+    ("prov_seq", "cat /data/a.txt; cat /data/b.txt"),
+    ("prov_or", "cat /data/b.txt || cat /data/a.txt"),
+    ("prov_for", "for i in 1 2 3; do cat /data/a.txt; done"),
+    ("prov_while", "while true; do cat /data/a.txt; done"),
+    # ----- graceful defaults for the remaining families -----
+    ("prov_file_cmd", "file /data/a.txt"),
+    ("prov_iconv", "iconv -f utf-8 -t utf-8 /data/a.txt"),
+    ("prov_cp", "cp /data/a.txt /data/sub"),
+    ("prov_gzip", "gzip /data/b.txt"),
+    ("prov_rm", "rm /data/dup.txt"),
+    ("prov_rm_r", "rm -r /data/guard"),
+    ("prov_mkdir", "mkdir /data/provdir"),
+    ("prov_mv", "mv /data/a.txt /data/moved.txt"),
+    ("prov_seq", "seq 3"),
+    ("prov_date", "date"),
+    # ----- complex bash aggregation -----
+    ("prov_pipe3", "cat /data/a.txt | grep hello | wc -l"),
+    ("prov_and_or",
+     "cat /data/a.txt && cat /data/b.txt || cat /data/numbers.txt"),
+    ("prov_or_and",
+     "cat /data/a.txt || cat /data/b.txt && cat /data/numbers.txt"),
+    ("prov_if_else",
+     "if true; then cat /data/a.txt; else cat /data/b.txt; fi"),
+    ("prov_if_cond_read",
+     "if grep -q hello /data/a.txt; then cat /data/b.txt; fi"),
+    ("prov_case", "case x in x) cat /data/a.txt;; *) cat /data/b.txt;; esac"),
+    ("prov_subshell", "(cat /data/a.txt; cat /data/b.txt)"),
+    ("prov_brace_group", "{ cat /data/a.txt; cat /data/b.txt; }"),
+    ("prov_negate", "! grep zzz /data/a.txt"),
+    ("prov_redirect_out", "cat /data/a.txt > /data/prov_redir.txt"),
+    ("prov_or_unknown_branch", "tee /data/prov_x.txt || cat /data/a.txt"),
+    ("prov_for_pipe", "for i in 1 2; do cat /data/a.txt | wc -l; done"),
+    ("prov_for_nested",
+     "for i in 1 2; do for j in 1 2; do cat /data/b.txt; done; done"),
+    ("prov_cmdsub", "cat $(echo /data/a.txt)"),
+    ("prov_deep_mix",
+     "for i in 1 2; do cat /data/a.txt | wc -l && cat /data/b.txt; done"),
+    # ----- planner/executor drift fixes (env prefix, functions, eval,
+    # select/until, redirect costing) -----
+    ("prov_env_prefix", "FOO=1 cat /data/a.txt"),
+    ("prov_func_call", "pfn() { cat /data/b.txt; }; pfn; pfn"),
+    ("prov_func_recursive", "prec() { prec; }; prec"),
+    ("prov_eval", "eval 'cat /data/a.txt'"),
+    ("prov_select", "select x in a b; do cat /data/a.txt; done"),
+    ("prov_until", "until false; do cat /data/a.txt; done"),
+    ("prov_redirect_in", "wc -l < /data/a.txt"),
+    ("prov_redirect_devnull", "cat /data/a.txt > /dev/null"),
+    # ----- namespace links and cross-mount commands -----
+    ("prov_symlink", "cat /data2/xm_link.txt"),
+    ("prov_symlink_grep", "grep x /data/xm_rlink.txt"),
+    ("prov_xmount_concat", "cat /data/a.txt /data2/xm.txt"),
+    ("prov_xmount_grep", "grep s /data/a.txt /data2/xm.txt"),
+    ("prov_xmount_pipe", "cat /data/a.txt /data2/xm.txt | wc -c"),
+    # md5 rejects cross-mount operands, so its plan is honest unknown
+    ("prov_xmount_rejected", "md5 /data/a.txt /data2/xm.txt"),
+]
+
+
+def provision_line(result) -> str:
+    return (f"net={result.network_read} write={result.network_write} "
+            f"cache={result.cache_read} ops={result.read_ops} "
+            f"hits={result.cache_hits} precision={result.precision.value}")
+
+
+async def run_provision_cases(ws) -> None:
+    await ws.cache.clear()
+    for name, cmd in PROVISION_CASES:
+        result = await ws.execute(cmd, provision=True)
+        print(f"=== {name} ===")
+        print(provision_line(result))
+
+
+async def run_provision_probe(ws, file_path: str) -> None:
+    """Provision probe for bespoke suites: one file read, one search, one
+    listing. Rendered/virtual files without a backend size print UNKNOWN
+    floors; files with real sizes print exact totals."""
+    parent = file_path.rsplit("/", 1)[0] or "/"
+    for name, cmd in (("prov_probe_cat", f"cat {file_path}"),
+                      ("prov_probe_grep", f"grep x {file_path}"),
+                      ("prov_probe_ls", f"ls {parent}")):
+        result = await ws.execute(cmd, provision=True)
+        print(f"=== {name} ===")
+        print(provision_line(result))
+
+
+async def _backend_bytes(ws, cmd: str) -> int:
+    before = sum(rec.bytes for rec in ws.ops.records)
+    result = await ws.execute(cmd)
+    await result.stdout_str()
+    return sum(rec.bytes for rec in ws.ops.records) - before
+
+
+async def run_cache_verify_cases(ws,
+                                 mount: str = "/data",
+                                 mount2: str | None = None) -> None:
+    """Byte-accounted cache verification for read-caching backends.
+
+    A second read of the same file pulls zero backend bytes, whether it
+    goes through the file's own path or a symlink (the link and its
+    target share one cache entry), and provision reports the hit. With
+    a second mount, the same holds for a cross-mount link, and the
+    cross-mount cp is pinned as-is (it does not read through the
+    cache today).
+    """
+    m = mount.rstrip("/")
+    target = f"{m}/cachev.txt"
+    link = f"{m}/cachev_link.txt"
+    await ws.execute(f"tee {target} > /dev/null", stdin=b"cache verify\n")
+    await ws.execute(f"ln -s {target} {link}")
+    await ws.cache.clear()
+    print("=== cachev_link_cold ===")
+    print(f"bytes={await _backend_bytes(ws, f'cat {link}')}")
+    print("=== cachev_link_warm ===")
+    print(f"bytes={await _backend_bytes(ws, f'cat {link}')}")
+    print("=== cachev_target_shares_entry ===")
+    print(f"bytes={await _backend_bytes(ws, f'cat {target}')}")
+    print("=== cachev_warm_grep ===")
+    print(f"bytes={await _backend_bytes(ws, f'grep cache {target}')}")
+    print("=== cachev_prov_link ===")
+    result = await ws.execute(f"cat {link}", provision=True)
+    print(provision_line(result))
+    if mount2 is not None:
+        m2 = mount2.rstrip("/")
+        xlink = f"{m2}/cachev_xlink.txt"
+        await ws.execute(f"ln -s {target} {xlink}")
+        await ws.cache.clear()
+        print("=== cachev_xmount_cold ===")
+        print(f"bytes={await _backend_bytes(ws, f'cat {xlink}')}")
+        print("=== cachev_xmount_warm ===")
+        print(f"bytes={await _backend_bytes(ws, f'cat {xlink}')}")
+        print("=== cachev_xmount_prov ===")
+        result = await ws.execute(f"cat {xlink}", provision=True)
+        print(provision_line(result))
+        print("=== cachev_xmount_cp_warm_source ===")
+        print(f"bytes="
+              f"{await _backend_bytes(ws, f'cp {target} {m2}/cachev_cp.txt')}")
+    await ws.execute(f"rm {link} {target}")
+
+
+async def run_provision_cache_cases(ws, mount: str = "/data") -> None:
+    """Cache-hit flipping for read-caching backends (caches_reads=True).
+
+    Once a path is in the file cache, provision reports the bytes as
+    cache_read instead of network_read. Both populate routes are covered:
+    write-through (tee) and read-through (a real cat).
+    """
+    m = mount.rstrip("/")
+    a, b = f"{m}/provcache.txt", f"{m}/provcache_b.txt"
+    await ws.execute(f"tee {a} > /dev/null", stdin=b"cache flip probe\n")
+    await ws.execute(f"tee {b} > /dev/null", stdin=b"second file\n")
+    print("=== prov_cache_write_through ===")
+    result = await ws.execute(f"cat {a}", provision=True)
+    print(provision_line(result))
+    await ws.cache.clear()
+    print("=== prov_cache_cold ===")
+    result = await ws.execute(f"cat {a}", provision=True)
+    print(provision_line(result))
+    await ws.execute(f"cat {a} > /dev/null")
+    print("=== prov_cache_read_through ===")
+    result = await ws.execute(f"cat {a}", provision=True)
+    print(provision_line(result))
+    # A single cached path flips the whole command's estimate: hits counts
+    # cached paths, the byte split is not per-path.
+    print("=== prov_cache_partial ===")
+    result = await ws.execute(f"cat {a} {b}", provision=True)
+    print(provision_line(result))
+    await ws.cache.clear()
+    print("=== prov_cache_cleared ===")
+    result = await ws.execute(f"cat {a}", provision=True)
+    print(provision_line(result))
+    await ws.execute(f"rm {a} {b}")
+
+
+def _emit_body(out: str) -> None:
+    # A non-empty body without a trailing newline is flagged with a git-style
+    # sentinel so truth.txt records the missing final newline (otherwise the
+    # section separators would mask it).
+    if out == "":
+        print()
+    elif out.endswith("\n"):
+        print(out, end="")
+    else:
+        print(out + "\n\\ No newline at end of output")
 
 
 async def run_cases(ws) -> None:
@@ -696,7 +1171,7 @@ async def run_cases(ws) -> None:
         result = await ws.execute(cmd)
         out = await result.stdout_str()
         print(f"=== {name} ===")
-        print(out, end="" if out.endswith("\n") else "\n")
+        _emit_body(out)
 
     for name, cmd in EXIT_CODE_CASES:
         result = await ws.execute(cmd)
@@ -704,7 +1179,7 @@ async def run_cases(ws) -> None:
         print(f"=== {name} ===")
         print(f"exit={result.exit_code}")
         if out:
-            print(out, end="" if out.endswith("\n") else "\n")
+            _emit_body(out)
 
     for name, cmd in NOT_FOUND_CASES:
         result = await ws.execute(cmd)
@@ -732,3 +1207,35 @@ async def run_cases(ws) -> None:
         else:
             print(f"{name} FAIL exit={result.exit_code} "
                   f"elapsed={elapsed:.3f}")
+
+    for name, cmd in CROSS_MOUNT_CASES:
+        result = await ws.execute(cmd)
+        out = await result.stdout_str()
+        print(f"=== {name} ===")
+        _emit_body(out)
+
+    await run_provision_cases(ws)
+
+
+async def assert_real_mtime(ws) -> None:
+    await ws.execute("mkdir -p /data/mtimecheck")
+    await ws.execute("tee /data/mtimecheck/probe.txt > /dev/null", stdin=b"x")
+    # Drop the write-through cache so the listing resolves mtime from the
+    # backend stat (the read-cache layer does not carry mtime; that is a
+    # separate concern from whether the backend reports it).
+    await ws.cache.clear()
+    file_out = await (
+        await ws.execute("ls -l /data/mtimecheck/probe.txt")).stdout_str()
+    dir_out = await (await
+                     ws.execute("ls -l /data | grep mtimecheck")).stdout_str()
+    for label, out in (("file", file_out), ("dir", dir_out)):
+        if not out.strip():
+            raise AssertionError(f"mtime check produced no {label} listing")
+        # EPOCH_LS_TIME from mirage.commands.builtin.utils.formatting; kept as
+        # a literal so importing cases does not pull mirage into sys.path (it
+        # would evict the integ dir and break sibling imports like onedrive).
+        if "Jan  1 00:00" in out:
+            raise AssertionError(
+                f"{label} ls -l shows epoch mtime (modified not set): "
+                f"{out.strip()!r}")
+    await ws.execute("rm -rf /data/mtimecheck")

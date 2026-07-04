@@ -37,6 +37,7 @@ from mirage.resource.base import BaseResource
 from mirage.resource.databricks_volume.config import DatabricksVolumeConfig
 from mirage.resource.databricks_volume.prompt import PROMPT
 from mirage.types import PathSpec, ResourceName
+from mirage.utils.key_prefix import mount_key
 
 _DATABRICKS_VOLUME_OPS = {
     "read_bytes": read_bytes,
@@ -58,7 +59,7 @@ _DATABRICKS_VOLUME_OPS = {
 
 class DatabricksVolumeResource(BaseResource):
     name: str = ResourceName.DATABRICKS_VOLUME
-    is_remote: bool = True
+    caches_reads: bool = True
     _ops: dict[str, Any] = _DATABRICKS_VOLUME_OPS
     PROMPT: str = PROMPT
 
@@ -79,9 +80,9 @@ class DatabricksVolumeResource(BaseResource):
     async def resolve_glob(self, paths, prefix: str = ""):
         if prefix:
             paths = [
-                dataclasses.replace(p, prefix=prefix)
-                if isinstance(p, PathSpec) and not p.prefix else p
-                for p in paths
+                dataclasses.replace(p,
+                                    resource_path=mount_key(p.virtual, prefix))
+                if isinstance(p, PathSpec) else p for p in paths
             ]
         return await _resolve_glob(self.accessor, paths, self._index)
 

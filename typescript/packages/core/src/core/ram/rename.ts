@@ -17,10 +17,11 @@ import type { PathSpec } from '../../types.ts'
 import { norm, nowIso } from './utils.ts'
 import { rstripSlash } from '../../utils/slash.ts'
 import { enoent } from '../../utils/errors.ts'
+import { invalidateAfterUnlink, invalidateAfterWrite } from '../../cache/context.ts'
 
-export function rename(accessor: RAMAccessor, src: PathSpec, dst: PathSpec): Promise<void> {
-  const s = norm(src.stripPrefix)
-  const d = norm(dst.stripPrefix)
+export async function rename(accessor: RAMAccessor, src: PathSpec, dst: PathSpec): Promise<void> {
+  const s = norm(src.mountPath)
+  const d = norm(dst.mountPath)
   const now = nowIso()
   const srcFile = accessor.store.files.get(s)
   if (srcFile !== undefined) {
@@ -28,6 +29,8 @@ export function rename(accessor: RAMAccessor, src: PathSpec, dst: PathSpec): Pro
     accessor.store.files.delete(s)
     accessor.store.modified.set(d, accessor.store.modified.get(s) ?? now)
     accessor.store.modified.delete(s)
+    await invalidateAfterUnlink(src)
+    await invalidateAfterWrite(dst)
     return Promise.resolve()
   }
   if (accessor.store.dirs.has(s)) {
@@ -47,6 +50,8 @@ export function rename(accessor: RAMAccessor, src: PathSpec, dst: PathSpec): Pro
         }
       }
     }
+    await invalidateAfterUnlink(src)
+    await invalidateAfterWrite(dst)
     return Promise.resolve()
   }
   throw enoent(src)

@@ -13,6 +13,7 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.redis import RedisAccessor
+from mirage.cache.context import invalidate_after_write
 from mirage.core.timeutil import now_iso
 from mirage.types import PathSpec
 from mirage.utils.path import norm
@@ -24,13 +25,17 @@ async def copy(
     dst: PathSpec,
 ) -> None:
     if isinstance(src, str):
-        src = PathSpec(original=src, directory=src)
+        src = PathSpec(virtual=src,
+                       directory=src,
+                       resource_path=src.strip("/"))
     if isinstance(src, PathSpec):
-        src = src.strip_prefix
+        src = src.mount_path
     if isinstance(dst, str):
-        dst = PathSpec(original=dst, directory=dst)
+        dst = PathSpec(virtual=dst,
+                       directory=dst,
+                       resource_path=dst.strip("/"))
     if isinstance(dst, PathSpec):
-        dst = dst.strip_prefix
+        dst = dst.mount_path
     store = accessor.store
     s, d = norm(src), norm(dst)
     data = await store.get_file(s)
@@ -38,3 +43,4 @@ async def copy(
         raise FileNotFoundError(s)
     await store.set_file(d, data)
     await store.set_modified(d, now_iso())
+    await invalidate_after_write(dst)

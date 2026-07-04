@@ -38,7 +38,7 @@ async def search(
     prefix = ""
     if paths:
         p0 = paths[0]
-        prefix = p0.prefix if isinstance(p0, PathSpec) else ""
+        prefix = p0.virtual.rstrip("/") if isinstance(p0, PathSpec) else ""
     output = await search_memories_rendered(
         accessor,
         query,

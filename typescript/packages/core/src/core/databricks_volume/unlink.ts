@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { invalidateAfterUnlink } from '../../cache/context.ts'
 import type { DatabricksVolumeAccessor } from '../../accessor/databricks_volume.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { record } from '../../observe/context.ts'
@@ -30,15 +31,16 @@ export async function unlink(
   const p = ensurePathSpec(path)
   const fileStat = await stat(accessor, p, index)
   if (fileStat.type === FileType.DIRECTORY) {
-    throw isADirectoryError(p.original)
+    throw isADirectoryError(p.virtual)
   }
   const remotePath = backendPath(accessor.config, p)
   const startMs = performance.now()
   try {
     await dbxFetch(accessor, 'DELETE', 'files', remotePath)
   } catch (exc) {
-    if (isNotFound(exc)) throw notFoundError(p.original)
+    if (isNotFound(exc)) throw notFoundError(p.virtual)
     throw exc
   }
-  record('unlink', p.original, ResourceName.DATABRICKS_VOLUME, 0, startMs)
+  record('unlink', p.virtual, ResourceName.DATABRICKS_VOLUME, 0, startMs)
+  await invalidateAfterUnlink(p)
 }

@@ -12,12 +12,15 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { RAMIndexCacheStore } from '../../../cache/index/ram.ts'
 import { materialize } from '../../../io/types.ts'
 import { PathSpec } from '../../../types.ts'
 import { FakeSlackTransport, makeFakeResource } from './_test_util.ts'
-import { SLACK_LS } from './ls.ts'
+import { SLACK_COMMANDS } from './index.ts'
+
+const SLACK_LS = SLACK_COMMANDS.filter((c) => c.name === 'ls' && c.filetype == null)
 
 const DEC = new TextDecoder()
 
@@ -54,10 +57,10 @@ describe('slack ls (no args) after cd preserves mount prefix', () => {
       resource.accessor,
       [
         new PathSpec({
-          original: '/slack/channels',
+          virtual: '/slack/channels',
           directory: '/slack/channels',
           resolved: false,
-          prefix: '/slack',
+          resourcePath: mountKey('/slack/channels', '/slack'),
         }),
       ],
       [],

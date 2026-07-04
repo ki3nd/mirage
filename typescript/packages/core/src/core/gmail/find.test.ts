@@ -47,8 +47,8 @@ function enoent(p: string): Error {
 
 function mockTree(tree: Record<string, string[]>): void {
   vi.mocked(readdirMod.readdir).mockImplementation((_accessor, spec) => {
-    const children = tree[spec.original]
-    if (children === undefined) return Promise.reject(enoent(spec.original))
+    const children = tree[spec.virtual]
+    if (children === undefined) return Promise.reject(enoent(spec.virtual))
     return Promise.resolve(children)
   })
 }
@@ -59,7 +59,7 @@ const TREE: Record<string, string[]> = {
   '/INBOX/2026-06-01': ['/INBOX/2026-06-01/Hello__m1.gmail.json'],
 }
 
-const ROOT = new PathSpec({ original: '/', directory: '/' })
+const ROOT = new PathSpec({ resourcePath: '', virtual: '/', directory: '/' })
 
 describe('gmail core find', () => {
   beforeEach(() => {

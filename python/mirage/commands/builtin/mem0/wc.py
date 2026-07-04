@@ -39,7 +39,7 @@ async def wc_provision(
 ) -> ProvisionResult:
     return await file_read_provision(
         accessor, paths,
-        "wc " + " ".join(p.original if isinstance(p, PathSpec) else p
+        "wc " + " ".join(p.display if isinstance(p, PathSpec) else p
                          for p in paths))
 
 
@@ -64,7 +64,7 @@ async def wc(
         for p in paths:
             data = await mem0_read(accessor, p, index)
             counts = await generic_wc(data)
-            rows.append((counts, p.original))
+            rows.append((counts, p.display))
             totals.merge(counts)
         if len(paths) > 1:
             rows.append((totals, "total"))

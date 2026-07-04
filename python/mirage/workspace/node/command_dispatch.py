@@ -22,22 +22,26 @@ from mirage.io.stream import materialize
 from mirage.shell.types import NodeType as NT
 from mirage.shell.types import ShellBuiltin as SB
 from mirage.types import PathSpec
+from mirage.utils.path import CycleError
 from mirage.workspace.executor.command import handle_command
 from mirage.workspace.executor.control import BreakSignal, ContinueSignal
 from mirage.workspace.expand import classify_parts, expand_node, expand_parts
 from mirage.workspace.expand.classify import classify_bare_path
 from mirage.workspace.node.classify_argv import classify_argv_by_spec
 from mirage.workspace.node.resolve_globs import resolve_globs
+from mirage.workspace.session.shell_dirs import home_dir
 from mirage.workspace.types import ExecutionNode
 
 from mirage.shell.helpers import (  # isort: skip
     ProcessSubDirection, get_command_name, get_parts,
-    get_process_sub_direction, get_text)
+    get_process_sub_direction, get_text, split_env_prefix)
 from mirage.workspace.executor.builtins import (  # isort: skip
-    handle_bash, handle_cd, handle_echo, handle_eval, handle_export,
-    handle_history, handle_local, handle_man, handle_printenv, handle_printf,
-    handle_read, handle_return, handle_set, handle_shift, handle_sleep,
-    handle_source, handle_test, handle_trap, handle_unset, handle_whoami)
+    NO_FOLLOW_COMMANDS, follow_paths, handle_bash, handle_cd, handle_echo,
+    handle_eval, handle_export, handle_history, handle_ln, handle_local,
+    handle_man, handle_printenv, handle_printf, handle_read, handle_readlink,
+    handle_return, handle_set, handle_shift, handle_sleep, handle_source,
+    handle_test, handle_trap, handle_unset, handle_whoami, link_flags,
+    prepare_mv, strip_link_operands)
 
 _UNSUPPORTED_BUILTINS = frozenset({
     "bg",
@@ -48,11 +52,54 @@ _UNSUPPORTED_BUILTINS = frozenset({
     "ulimit",
 })
 
+_CdArgs = list[str | PathSpec]
+
+
+def _split_cd_options(args: _CdArgs) -> tuple[_CdArgs, str | None, bool]:
+    """Split leading ``cd`` option flags from the directory operand.
+
+    Accepts the GNU ``cd`` options ``-L -P -e -@`` (and clusters such as
+    ``-LP``) plus a ``--`` end-of-options marker; a bare ``-`` is the
+    OLDPWD operand, not an option.
+
+    Args:
+        args: The classified arguments after the ``cd`` command name.
+
+    Returns:
+        ``(operands, bad, physical)`` where ``operands`` are the non-option
+        args, ``bad`` is the first unknown option character (or ``None``),
+        and ``physical`` is True when ``-P`` is the effective (last-wins)
+        mode.
+    """
+    operands: _CdArgs = []
+    parsing = True
+    physical = False
+    for arg in args:
+        s = arg.virtual if isinstance(arg, PathSpec) else str(arg)
+        if parsing:
+            if s == "--":
+                parsing = False
+                continue
+            if s != "-" and len(s) >= 2 and s.startswith("-"):
+                bad = next((c for c in s[1:] if c not in "LPe@"), None)
+                if bad is None:
+                    for c in s[1:]:
+                        if c == "P":
+                            physical = True
+                        elif c == "L":
+                            physical = False
+                    continue
+                return operands, bad, physical
+            parsing = False
+        operands.append(arg)
+    return operands, None, physical
+
 
 async def execute_command(
     recurse,
     dispatch,
     registry,
+    namespace,
     execute_fn,
     node,
     session,
@@ -63,30 +110,21 @@ async def execute_command(
 ) -> tuple[Any, IOResult, ExecutionNode]:
     """Dispatch a command node by name."""
     name = get_command_name(node)
-    parts = get_parts(node)
+    assignment_nodes, parts = split_env_prefix(get_parts(node))
 
     prefix_assignments: list[tuple[str, str]] = []
-    non_prefix_parts = []
-    saw_command_name = False
-    for p in parts:
-        if not saw_command_name and p.type == NT.VARIABLE_ASSIGNMENT:
-            atext = get_text(p)
-            if "=" in atext:
-                key, _, raw_val = atext.partition("=")
-                val_nodes = [
-                    c for c in p.named_children if c.type != NT.VARIABLE_NAME
-                ]
-                if val_nodes:
-                    v = await expand_node(val_nodes[0], session, execute_fn,
-                                          call_stack)
-                else:
-                    v = raw_val
-                prefix_assignments.append((key, v))
+    for p in assignment_nodes:
+        atext = get_text(p)
+        if "=" not in atext:
             continue
-        if p.type == NT.COMMAND_NAME:
-            saw_command_name = True
-        non_prefix_parts.append(p)
-    parts = non_prefix_parts
+        key, _, raw_val = atext.partition("=")
+        val_nodes = [c for c in p.named_children if c.type != NT.VARIABLE_NAME]
+        if val_nodes:
+            v = await expand_node(val_nodes[0], session, execute_fn,
+                                  call_stack)
+        else:
+            v = raw_val
+        prefix_assignments.append((key, v))
 
     for k, _ in prefix_assignments:
         if k in session.readonly_vars:
@@ -114,9 +152,9 @@ async def execute_command(
     timeout = (resolved.timeout_seconds if resolved is not None else None)
 
     try:
-        body = _dispatch_command_body(recurse, dispatch, registry, execute_fn,
-                                      node, parts, name, session, stdin,
-                                      call_stack, job_table, cancel)
+        body = _dispatch_command_body(recurse, dispatch, registry, namespace,
+                                      execute_fn, node, parts, name, session,
+                                      stdin, call_stack, job_table, cancel)
         return await run_with_timeout(body, timeout, name or "?")
     finally:
         for k, prev in saved_env_overrides.items():
@@ -130,6 +168,7 @@ async def _dispatch_command_body(
     recurse,
     dispatch,
     registry,
+    namespace,
     execute_fn,
     node,
     parts,
@@ -196,7 +235,7 @@ async def _dispatch_command_body(
     # Mount commands receive classified with unresolved globs so
     # each resource can handle pattern pushdown.
     resolved = await resolve_globs(classified, registry, text_args=text_args)
-    expanded = [p.original if isinstance(p, PathSpec) else p for p in resolved]
+    expanded = [p.virtual if isinstance(p, PathSpec) else p for p in resolved]
 
     # ── unsupported bash builtins ──────────────
     # Constructs the parser accepts but the executor cannot honor.
@@ -215,20 +254,65 @@ async def _dispatch_command_body(
         return out, IOResult(), ExecutionNode(command="pwd", exit_code=0)
 
     if name == SB.CD:
-        if len(classified) <= 1:
-            path = "/"
+        operands, bad_opt, physical = _split_cd_options(classified[1:])
+        if bad_opt is not None:
+            err = (f"cd: -{bad_opt}: invalid option\n"
+                   f"cd: usage: cd [-L|[-P [-e]] [-@]] [dir]\n").encode()
+            return None, IOResult(exit_code=2,
+                                  stderr=err), ExecutionNode(command="cd",
+                                                             exit_code=2,
+                                                             stderr=err)
+        if len(operands) > 1:
+            err = b"cd: too many arguments\n"
+            return None, IOResult(exit_code=1,
+                                  stderr=err), ExecutionNode(command="cd",
+                                                             exit_code=1,
+                                                             stderr=err)
+        if not operands:
+            home = home_dir(session)
+            if home is None:
+                err = b"cd: HOME not set\n"
+                return None, IOResult(exit_code=1,
+                                      stderr=err), ExecutionNode(command="cd",
+                                                                 exit_code=1,
+                                                                 stderr=err)
+            return await handle_cd(dispatch,
+                                   registry.is_mount_root,
+                                   home,
+                                   session,
+                                   links=namespace.symlink_targets(),
+                                   physical=physical)
+        raw = operands[0]
+        raw_str = raw.virtual if isinstance(raw, PathSpec) else str(raw)
+        if raw_str == "-":
+            old = session.env.get("OLDPWD")
+            if not old:
+                err = b"cd: OLDPWD not set\n"
+                return None, IOResult(exit_code=1, stderr=err), ExecutionNode(
+                    command="cd -", exit_code=1, stderr=err)
+            return await handle_cd(dispatch,
+                                   registry.is_mount_root,
+                                   old,
+                                   session,
+                                   print_path=True,
+                                   links=namespace.symlink_targets(),
+                                   physical=physical)
+        if isinstance(raw, PathSpec):
+            path = raw
+            cdpath_target = raw.raw_path or raw.virtual
+        elif raw_str.startswith("/"):
+            path = raw_str
+            cdpath_target = raw_str
         else:
-            raw = classified[1]
-            raw_str = raw.original if isinstance(raw, PathSpec) else str(raw)
-            if raw_str == "~":
-                path = "/"
-            elif isinstance(raw, PathSpec):
-                path = raw
-            elif raw_str.startswith("/"):
-                path = raw_str
-            else:
-                path = classify_bare_path(raw_str, registry, session.cwd)
-        return await handle_cd(dispatch, registry.is_mount_root, path, session)
+            path = classify_bare_path(raw_str, registry, session.cwd)
+            cdpath_target = raw_str
+        return await handle_cd(dispatch,
+                               registry.is_mount_root,
+                               path,
+                               session,
+                               cdpath_target=cdpath_target,
+                               links=namespace.symlink_targets(),
+                               physical=physical)
 
     if name == SB.HISTORY:
         return await handle_history(registry, expanded[1:], session)
@@ -339,12 +423,59 @@ async def _dispatch_command_body(
     if name == SB.CONTINUE:
         raise ContinueSignal()
 
+    # ── symlinks (namespace-backed; not bash builtins, not mount
+    #    commands: they mutate the addressing layer) ──
+    if name == "ln" and "s" in link_flags(classified[1:], "sfnv"):
+        return handle_ln(namespace, session, classified[1:])
+
+    if name == "readlink" and not (link_flags(classified[1:], "fenm")
+                                   & {"f", "e", "m"}):
+        return handle_readlink(namespace, session, classified[1:])
+
+    # ── symlink-aware dispatch: reads follow links (open(2)); rm/mv act
+    #    on the link entry itself (lstat semantics) ──
+    post_unlink: str | None = None
+    if namespace.symlinks:
+        try:
+            if name == "rm":
+                rest, removed = strip_link_operands(namespace, classified[1:])
+                classified = classified[:1] + rest
+                if removed and not any(isinstance(a, PathSpec) for a in rest):
+                    return None, IOResult(), ExecutionNode(command=name,
+                                                           exit_code=0)
+            elif name == "mv":
+                rest, post_unlink, early = await prepare_mv(
+                    namespace, dispatch, classified[1:])
+                classified = classified[:1] + rest
+                if early is not None:
+                    return early
+            elif name not in NO_FOLLOW_COMMANDS:
+                classified = classified[:1] + follow_paths(
+                    namespace, classified[1:])
+        except CycleError as exc:
+            err = (f"{name}: {exc}: "
+                   f"Too many levels of symbolic links\n").encode()
+            return None, IOResult(exit_code=1,
+                                  stderr=err), ExecutionNode(command=name,
+                                                             exit_code=1,
+                                                             stderr=err)
+
     # ── mount command (default) ─────────────────
-    return await handle_command(recurse,
-                                dispatch,
-                                registry,
-                                classified,
-                                session,
-                                stdin,
-                                call_stack,
-                                job_table=job_table)
+    stdout, io, exec_node = await handle_command(recurse,
+                                                 dispatch,
+                                                 registry,
+                                                 classified,
+                                                 session,
+                                                 stdin,
+                                                 call_stack,
+                                                 job_table=job_table,
+                                                 namespace=namespace)
+
+    if io.exit_code == 0 and namespace.symlinks:
+        if name == "rm":
+            for item in classified[1:]:
+                if isinstance(item, PathSpec):
+                    namespace.purge_under(item.virtual)
+        if post_unlink is not None:
+            namespace.unlink(post_unlink)
+    return stdout, io, exec_node

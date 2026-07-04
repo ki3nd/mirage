@@ -57,6 +57,16 @@ CASES: list[tuple[str, str, str]] = [
     ("bash_history_has_synthetic", "default",
      "grep -c 'synthetic entry one' /.bash_history"),
     ("find_view_by_name", "default", "find /.bash_history -name '*bash*'"),
+    # ----- symlinks: commands record as typed (the link path, not the
+    #       followed target); the follow happens below the recorder -----
+    ("sym_hist_setup", "default",
+     "echo view > /data/ht.txt && ln -s /data/ht.txt /data/hlink"),
+    ("sym_hist_cat", "default", "cat /data/hlink"),
+    ("sym_hist_shows_typed", "default", "history 2"),
+    ("sym_hist_file_has_link_path", "default",
+     "grep -c 'cat /data/hlink' /.bash_history"),
+    ("sym_hist_no_target_leak", "default",
+     "grep -c 'cat /data/ht.txt' /.bash_history"),
 ]
 
 EXIT_CODE_CASES: list[tuple[str, str, str]] = [
@@ -83,6 +93,18 @@ async def main() -> None:
         result = await ws.execute(cmd, session_id=session)
         print(f"=== {name} ===")
         print(f"nonzero_exit={result.exit_code != 0}")
+
+    # Provision over the rendered histfile view: sizes come from the
+    # deterministic recorded-command state at this point in the run.
+    for pv_name, pv_cmd in (("prov_probe_cat", "cat /.bash_history"),
+                            ("prov_probe_grep", "grep x /.bash_history"),
+                            ("prov_probe_ls", "ls /.bash_history")):
+        result = await ws.execute(pv_cmd, provision=True)
+        print(f"=== {pv_name} ===")
+        print(f"net={result.network_read} write={result.network_write} "
+              f"cache={result.cache_read} ops={result.read_ops} "
+              f"hits={result.cache_hits} "
+              f"precision={result.precision.value}")
 
     # ----- observer: the hidden recorder behind the views -----
     events = await ws.observer.events()

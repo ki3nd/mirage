@@ -46,8 +46,9 @@ def _accessor():
 
 @pytest.mark.asyncio
 async def test_stat_root_is_dir():
-    s = await stat(_accessor(),
-                   PathSpec(original="/mem", directory="/mem", prefix="/mem"))
+    s = await stat(
+        _accessor(),
+        PathSpec(virtual="/mem", directory="/mem", resource_path=""))
     assert s.type == FileType.DIRECTORY
 
 
@@ -55,9 +56,11 @@ async def test_stat_root_is_dir():
 async def test_stat_memory_from_cache_has_times():
     acc = _accessor()
     index = RAMIndexCacheStore()
-    root = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    root = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     await readdir(acc, root, index)
-    fpath = PathSpec(original="/mem/aaa.json", directory="/mem", prefix="/mem")
+    fpath = PathSpec(virtual="/mem/aaa.json",
+                     directory="/mem",
+                     resource_path="aaa.json")
     s = await stat(acc, fpath, index)
     assert s.type == FileType.JSON
     assert s.name == "aaa.json"
@@ -70,7 +73,9 @@ async def test_stat_memory_from_cache_has_times():
 @pytest.mark.asyncio
 async def test_stat_memory_fallback_get():
     acc = _accessor()
-    fpath = PathSpec(original="/mem/zzz.json", directory="/mem", prefix="/mem")
+    fpath = PathSpec(virtual="/mem/zzz.json",
+                     directory="/mem",
+                     resource_path="zzz.json")
     s = await stat(acc, fpath, RAMIndexCacheStore())
     assert s.modified == "2026-06-15T09:00:00-07:00"
     assert acc._client.get_calls == 1
@@ -89,7 +94,9 @@ async def test_stat_falls_back_to_created_at():
         }
 
     acc._client.get = _get
-    fpath = PathSpec(original="/mem/zzz.json", directory="/mem", prefix="/mem")
+    fpath = PathSpec(virtual="/mem/zzz.json",
+                     directory="/mem",
+                     resource_path="zzz.json")
     s = await stat(acc, fpath, RAMIndexCacheStore())
     assert s.modified == "2026-06-15T00:00:00-07:00"
 
@@ -99,4 +106,4 @@ async def test_stat_invalid_enoent():
     with pytest.raises(FileNotFoundError):
         await stat(
             _accessor(),
-            PathSpec(original="/mem/.x", directory="/mem", prefix="/mem"))
+            PathSpec(virtual="/mem/.x", directory="/mem", resource_path=".x"))

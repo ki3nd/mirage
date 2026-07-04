@@ -12,26 +12,29 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../../utils/key_prefix.ts'
+import { cacheAwareStream } from '../../../cache/read_through.ts'
 import { exitOnEmpty } from '../../../io/stream.ts'
 import { IOResult, materialize, type ByteSource } from '../../../io/types.ts'
 import { FileType, PathSpec, type FileStat } from '../../../types.ts'
+import { rebaseDisplay } from '../../../utils/path.ts'
 import type { CommandFnResult, CommandOpts } from '../../config.ts'
-import { compilePattern, grepStream, resolvePatternFromFlags } from '../grep_helper.ts'
+import {
+  compilePattern,
+  grepStream,
+  nonzeroCountStream,
+  resolvePatternFromFlags,
+} from '../grep_helper.ts'
 import { rgFolderFiletype, rgFull } from '../rg_helper.ts'
 import { resolveSource } from '../utils/stream.ts'
 import { grepGeneric } from './grep.ts'
 
 const ENC = new TextEncoder()
+const DEC = new TextDecoder()
 
 type Stat = (p: PathSpec) => Promise<FileStat>
 type Readdir = (p: PathSpec) => Promise<string[]>
 type Stream = (p: PathSpec) => AsyncIterable<Uint8Array>
-type ScopeCheck = (
-  readdir: (p: string) => Promise<string[]>,
-  stat: (p: string) => Promise<FileStat>,
-  scope: PathSpec,
-  recursive: boolean,
-) => Promise<string | null>
 
 interface RgFlags {
   ignoreCase: boolean
@@ -75,7 +78,12 @@ function parseRgFlags(flags: Record<string, string | boolean | string[]>): RgFla
 }
 
 function makeSpec(path: string, template: PathSpec): PathSpec {
-  return new PathSpec({ original: path, directory: path, resolved: false, prefix: template.prefix })
+  return new PathSpec({
+    virtual: path,
+    directory: path,
+    resolved: false,
+    resourcePath: mountKey(path, mountPrefixOf(template.virtual, template.resourcePath)),
+  })
 }
 
 export async function rgGeneric(
@@ -85,8 +93,8 @@ export async function rgGeneric(
   stat: Stat,
   readdir: Readdir,
   stream: Stream,
-  scopeCheck?: ScopeCheck,
 ): Promise<CommandFnResult> {
+  stream = cacheAwareStream(stream)
   const resolution = await resolvePatternFromFlags(
     'rg',
     texts,
@@ -148,18 +156,8 @@ export async function rgGeneric(
   const statFn = (p: string): Promise<FileStat> => stat(makeSpec(p, first))
   const readBytesFn = (p: string): Promise<Uint8Array> => materialize(stream(makeSpec(p, first)))
 
-  let scopeWarn: string | null = null
-  if (scopeCheck !== undefined && !first.resolved) {
-    try {
-      scopeWarn = await scopeCheck(readdirFn, statFn, first, true)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return [null, new IOResult({ exitCode: 1, stderr: ENC.encode(msg) })]
-    }
-  }
-
   if (isDir && opts.filetypeFns !== null && Object.keys(opts.filetypeFns).length > 0) {
-    const warnings: string[] = scopeWarn !== null ? [scopeWarn] : []
+    const warnings: string[] = []
     const folderOpts = {
       ignoreCase: flags.ignoreCase,
       invert: flags.invert,
@@ -181,7 +179,7 @@ export async function rgGeneric(
           readdirFn,
           statFn,
           readBytesFn,
-          p.original,
+          p.virtual,
           exprText,
           folderOpts,
           warnings,
@@ -206,7 +204,7 @@ export async function rgGeneric(
     flags.fileType !== null ||
     flags.globPattern !== null
   if (needsFull) {
-    const warnings: string[] = scopeWarn !== null ? [scopeWarn] : []
+    const warnings: string[] = []
     const fullOpts = {
       ignoreCase: flags.ignoreCase,
       invert: flags.invert,
@@ -225,18 +223,17 @@ export async function rgGeneric(
     }
     const results: string[] = []
     for (const p of paths) {
-      results.push(
-        ...(await rgFull(
-          readdirFn,
-          statFn,
-          readBytesFn,
-          p.original,
-          exprText,
-          fullOpts,
-          warnings,
-          paths.length > 1 ? p.original : null,
-        )),
+      const hitsFull = await rgFull(
+        readdirFn,
+        statFn,
+        readBytesFn,
+        p.virtual,
+        exprText,
+        fullOpts,
+        warnings,
+        paths.length > 1 ? p.display : null,
       )
+      results.push(...rebaseDisplay(hitsFull, p.virtual, p.display))
     }
     const stderr = warnings.length > 0 ? ENC.encode(warnings.join('\n') + '\n') : undefined
     if (results.length === 0) {
@@ -246,6 +243,32 @@ export async function rgGeneric(
     const out: ByteSource = ENC.encode(results.join('\n') + '\n')
     const io = new IOResult(stderr !== undefined ? { stderr } : {})
     return [out, io]
+  }
+
+  if (flags.countOnly) {
+    const pat = compilePattern(exprText, flags.ignoreCase, flags.fixedString, flags.wholeWord)
+    const streamOpts = {
+      invert: flags.invert,
+      lineNumbers: false,
+      onlyMatching: flags.onlyMatching,
+      maxCount: flags.maxCount,
+      countOnly: true,
+      afterContext: 0,
+      beforeContext: 0,
+    }
+    if (paths.length > 1) {
+      const results: string[] = []
+      for (const p of paths) {
+        const counted = await materialize(grepStream(stream(p), pat, streamOpts))
+        const n = Number.parseInt(DEC.decode(counted).trim() || '0', 10)
+        if (n > 0) results.push(`${p.display}:${String(n)}`)
+      }
+      if (results.length === 0) return [new Uint8Array(0), new IOResult({ exitCode: 1 })]
+      return [ENC.encode(results.join('\n') + '\n'), new IOResult()]
+    }
+    const io = new IOResult()
+    const counted = nonzeroCountStream(grepStream(stream(first), pat, streamOpts))
+    return [exitOnEmpty(counted, io), io]
   }
 
   return grepGeneric('rg', paths, texts, opts, stat, readdir, stream)

@@ -13,6 +13,7 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.onedrive import OneDriveAccessor
+from mirage.cache.context import invalidate_after_unlink
 from mirage.core.onedrive._client import (GraphError, graph_delete, item_url,
                                           split_path)
 from mirage.types import PathSpec
@@ -20,7 +21,7 @@ from mirage.utils.errors import enoent
 
 
 async def unlink(accessor: OneDriveAccessor, path: PathSpec) -> None:
-    virtual = path.original if isinstance(path, PathSpec) else path
+    virtual = path.virtual if isinstance(path, PathSpec) else path
     _, stripped = split_path(path)
     try:
         await graph_delete(accessor.config,
@@ -29,3 +30,4 @@ async def unlink(accessor: OneDriveAccessor, path: PathSpec) -> None:
         if exc.status == 404:
             raise enoent(virtual)
         raise
+    await invalidate_after_unlink(path)

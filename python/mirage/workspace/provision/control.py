@@ -32,19 +32,59 @@ async def _plan_body(provision_node_fn, body: list,
     return rollup_list(";", children)
 
 
+async def handle_function_provision(
+    provision_node_fn,
+    name: str,
+    body: list,
+    planning: set[str],
+    session: Session,
+) -> ProvisionResult:
+    """Plan a shell function call: the body's cost.
+
+    Recursive functions would loop the planner, so a function already
+    being planned reports UNKNOWN instead of recursing again.
+
+    Args:
+        provision_node_fn: recursive planner.
+        name (str): function name.
+        body (list): function body statement nodes.
+        planning (set[str]): names currently being planned (guard).
+        session (Session): shell session state.
+    """
+    if name in planning:
+        return ProvisionResult(command=name, precision=Precision.UNKNOWN)
+    planning.add(name)
+    try:
+        result = await _plan_body(provision_node_fn, body, session)
+    finally:
+        planning.discard(name)
+    if not result.command:
+        result.command = name
+    return result
+
+
 async def handle_if_provision(
     provision_node_fn,
     branches: list[tuple[Any, Any]],
     else_body: Any | None,
     session: Session,
 ) -> ProvisionResult:
-    """Plan an if: range between branches."""
+    """Plan an if: branches bracket as alternatives.
+
+    Taking branch i evaluates conditions 1..i plus body i, so each
+    alternative sums its condition ladder with its body. The else (or,
+    without one, the fall-through) still pays every condition.
+    """
+    cond_costs: list[ProvisionResult] = []
     children = []
     for condition, body in branches:
-        children.append(await provision_node_fn(condition, session))
-        children.append(await provision_node_fn(body, session))
-    if else_body is not None:
-        children.append(await provision_node_fn(else_body, session))
+        cond_costs.append(await provision_node_fn(condition, session))
+        body_result = await _plan_body(provision_node_fn, body, session)
+        children.append(rollup_list(";", cond_costs + [body_result]))
+    else_result = (await _plan_body(provision_node_fn, else_body, session)
+                   if else_body is not None else ProvisionResult(
+                       precision=Precision.EXACT))
+    children.append(rollup_list(";", cond_costs + [else_result]))
     return rollup_list("||", children)
 
 
@@ -56,20 +96,7 @@ async def handle_for_provision(
 ) -> ProvisionResult:
     """Plan a for loop: body cost x iteration count."""
     result = await _plan_body(provision_node_fn, body, session)
-    return ProvisionResult(
-        command="for",
-        network_read_low=result.network_read_low * n,
-        network_read_high=result.network_read_high * n,
-        cache_read_low=result.cache_read_low * n,
-        cache_read_high=result.cache_read_high * n,
-        network_write_low=result.network_write_low * n,
-        network_write_high=result.network_write_high * n,
-        cache_write_low=result.cache_write_low * n,
-        cache_write_high=result.cache_write_high * n,
-        read_ops=result.read_ops * n,
-        cache_hits=result.cache_hits * n,
-        precision=result.precision,
-    )
+    return result.scaled(n, command="for")
 
 
 async def handle_while_provision(

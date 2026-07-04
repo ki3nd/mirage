@@ -29,7 +29,9 @@ import { materialize } from '../../../io/types.ts'
 import type { Resource } from '../../../resource/base.ts'
 import { PathSpec } from '../../../types.ts'
 import type { CommandFnResult, CommandOpts } from '../../config.ts'
-import { GDRIVE_CUT } from './cut.ts'
+import { GDRIVE_COMMANDS } from './index.ts'
+
+const GDRIVE_CUT = GDRIVE_COMMANDS.filter((c) => c.name === 'cut' && c.filetype == null)
 
 const ENC = new TextEncoder()
 const DEC = new TextDecoder()
@@ -76,7 +78,13 @@ describe('gdrive cut', () => {
     if (cmd === undefined) throw new Error('cut not registered')
     const result = await cmd.fn(
       makeAccessor() as never,
-      [new PathSpec({ original: '/test/file.csv', directory: '/test' })],
+      [
+        new PathSpec({
+          resourcePath: 'test/file.csv',
+          virtual: '/test/file.csv',
+          directory: '/test',
+        }),
+      ],
       [],
       makeOpts({ flags: { d: ',', f: '2' }, index }),
     )
@@ -101,7 +109,13 @@ describe('gdrive cut', () => {
     if (cmd === undefined) throw new Error('cut not registered')
     const result = await cmd.fn(
       makeAccessor() as never,
-      [new PathSpec({ original: '/test/file.txt', directory: '/test' })],
+      [
+        new PathSpec({
+          resourcePath: 'test/file.txt',
+          virtual: '/test/file.txt',
+          directory: '/test',
+        }),
+      ],
       [],
       makeOpts({ flags: { c: '1-3' }, index }),
     )

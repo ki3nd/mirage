@@ -14,21 +14,23 @@
 
 import {
   BaseResource,
-  type FileStat,
   GDRIVE_COMMANDS,
   GDRIVE_PROMPT,
   GDRIVE_VFS_OPS,
   GDriveAccessor,
   PathSpec,
-  type RegisteredCommand,
-  type RegisteredOp,
-  type Resource,
   ResourceName,
   TokenManager,
   gdriveRead,
   gdriveReaddir,
   gdriveResolveGlob,
   gdriveStat,
+  mountKey,
+  mountPrefixOf,
+  type FileStat,
+  type RegisteredCommand,
+  type RegisteredOp,
+  type Resource,
 } from '@struktoai/mirage-core'
 import { redactGDriveConfig, type GDriveConfig, type GDriveConfigRedacted } from './config.ts'
 
@@ -39,7 +41,7 @@ export interface GDriveResourceState {
 
 export class GDriveResource extends BaseResource implements Resource {
   readonly kind: string = ResourceName.GDRIVE
-  readonly isRemote: boolean = true
+  readonly cachesReads: boolean = true
   readonly indexTtl: number = 86_400
   readonly prompt: string = GDRIVE_PROMPT
   readonly config: GDriveConfig
@@ -85,7 +87,7 @@ export class GDriveResource extends BaseResource implements Resource {
   }
 
   async fingerprint(p: PathSpec): Promise<string | null> {
-    const lookup = await this.index.get(p.original)
+    const lookup = await this.index.get(p.virtual)
     return lookup.entry?.remoteTime ?? null
   }
 
@@ -93,14 +95,14 @@ export class GDriveResource extends BaseResource implements Resource {
     const effective =
       prefix !== ''
         ? paths.map((p) =>
-            p.prefix !== ''
+            mountPrefixOf(p.virtual, p.resourcePath) !== ''
               ? p
               : new PathSpec({
-                  original: p.original,
+                  virtual: p.virtual,
                   directory: p.directory,
                   ...(p.pattern !== null ? { pattern: p.pattern } : {}),
                   resolved: p.resolved,
-                  prefix,
+                  resourcePath: mountKey(p.virtual, prefix),
                 }),
           )
         : paths

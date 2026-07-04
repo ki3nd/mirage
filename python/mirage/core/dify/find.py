@@ -1,10 +1,12 @@
 from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.find_eval import (FindEntry, PredNode, build_tree,
-                                               keep, tree_has_type)
+                                               keep, start_basename,
+                                               tree_has_type)
 from mirage.core.dify.path import resolve_path
 from mirage.core.dify.stat import stat
 from mirage.core.dify.walk import walk
 from mirage.types import PathSpec
+from mirage.utils.key_prefix import mount_key, mount_prefix_of
 
 
 async def find(
@@ -41,11 +43,13 @@ async def find(
                                                     name_exclude=name_exclude,
                                                     or_names=or_names)
     needs_kind = tree_has_type(tree)
+    start_name = start_basename(path)
     filtered: list[str] = []
     for item in results:
-        if await _matches(accessor, item, path.prefix, index,
-                          path.strip_prefix, tree, needs_kind, min_size,
-                          max_size, mindepth):
+        if await _matches(accessor, item,
+                          mount_prefix_of(path.virtual, path.resource_path),
+                          index, path.mount_path, tree, needs_kind, min_size,
+                          max_size, mindepth, start_name):
             filtered.append(item)
     return sorted(filtered)
 
@@ -61,9 +65,13 @@ async def _matches(
     min_size: int | None,
     max_size: int | None,
     mindepth: int | None,
+    start_name: str,
 ) -> bool:
-    item_name = item.rstrip("/").rsplit("/", 1)[-1]
-    spec = PathSpec.from_str_path(item, prefix)
+    root_norm = root.rstrip("/") or "/"
+    item_norm = item.rstrip("/") or "/"
+    item_name = (start_name if item_norm == root_norm else
+                 item.rstrip("/").rsplit("/", 1)[-1])
+    spec = PathSpec.from_str_path(item, mount_key(item, prefix))
     kind = "f"
     if needs_kind:
         resolved = await resolve_path(accessor, spec, index)

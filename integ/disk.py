@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from cases import run_cases  # noqa: E402
+from cases import assert_real_mtime, run_cases  # noqa: E402
 
 from mirage import MountMode, Workspace  # noqa: E402
 from mirage.observe.disk_store import DiskObserverStore  # noqa: E402
@@ -29,14 +29,21 @@ from mirage.resource.disk import DiskResource  # noqa: E402
 
 async def main() -> None:
     tmp = tempfile.mkdtemp(prefix="mirage-integ-disk-")
+    tmp2 = tempfile.mkdtemp(prefix="mirage-integ-disk2-")
     obs_root = tempfile.mkdtemp(prefix="mirage-integ-observer-")
     try:
-        ws = Workspace({"/data": DiskResource(root=tmp)},
-                       mode=MountMode.WRITE,
-                       observe=DiskObserverStore(obs_root))
+        ws = Workspace(
+            {
+                "/data": DiskResource(root=tmp),
+                "/data2": DiskResource(root=tmp2)
+            },
+            mode=MountMode.WRITE,
+            observe=DiskObserverStore(obs_root))
         await run_cases(ws)
+        await assert_real_mtime(ws)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(tmp2, ignore_errors=True)
         shutil.rmtree(obs_root, ignore_errors=True)
 
 

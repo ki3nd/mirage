@@ -15,10 +15,11 @@
 from mirage.accessor.notion import NotionAccessor
 from mirage.cache.index import IndexCacheStore
 from mirage.commands.builtin.find_eval import (FindEntry, PredNode, build_tree,
-                                               keep)
+                                               keep, start_basename)
 from mirage.core.notion.readdir import readdir
 from mirage.core.notion.stat import stat
 from mirage.types import FileStat, FileType, PathSpec
+from mirage.utils.key_prefix import mount_key, mount_prefix_of
 
 
 async def _collect(
@@ -28,14 +29,17 @@ async def _collect(
     out: list[tuple[str, FileStat]],
 ) -> None:
     file_stat = await stat(accessor, path, index)
-    out.append((path.original, file_stat))
+    out.append((path.virtual, file_stat))
     if file_stat.type != FileType.DIRECTORY:
         return
     for entry in await readdir(accessor, path, index):
-        child = PathSpec(original=entry,
+        child = PathSpec(virtual=entry,
                          directory=entry,
                          resolved=False,
-                         prefix=path.prefix)
+                         resource_path=mount_key(
+                             entry,
+                             mount_prefix_of(path.virtual,
+                                             path.resource_path)))
         await _collect(accessor, child, index, out)
 
 
@@ -60,7 +64,8 @@ async def find(
 ) -> list[str]:
     if isinstance(path, str):
         path = PathSpec.from_str_path(path)
-    base = path.strip_prefix
+    start_name = start_basename(path)
+    base = path.mount_path
     base = "/" + base.strip("/") if base.strip("/") else "/"
     base_depth = 0 if base == "/" else base.count("/")
     collected: list[tuple[str, FileStat]] = []
@@ -74,11 +79,14 @@ async def find(
                                                     or_names=or_names)
     for entry_path, file_stat in collected:
         rel = entry_path
-        if path.prefix and rel.startswith(path.prefix):
-            rel = rel[len(path.prefix):] or "/"
+        if mount_prefix_of(
+                path.virtual, path.resource_path) and rel.startswith(
+                    mount_prefix_of(path.virtual, path.resource_path)):
+            rel = rel[len(mount_prefix_of(path.virtual, path.resource_path)
+                          ):] or "/"
         rel = "/" + rel.strip("/") if rel.strip("/") else "/"
         is_dir = file_stat.type == FileType.DIRECTORY
-        entry_name = rel.rsplit("/", 1)[-1]
+        entry_name = start_name if rel == base else rel.rsplit("/", 1)[-1]
         depth = 0 if rel == base else rel.count("/") - base_depth
         if maxdepth is not None and depth > maxdepth:
             continue

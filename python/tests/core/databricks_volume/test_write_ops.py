@@ -18,10 +18,11 @@ from mirage.core.databricks_volume.create import create
 from mirage.core.databricks_volume.unlink import unlink
 from mirage.core.databricks_volume.write import write_bytes
 from mirage.types import PathSpec
+from mirage.utils.key_prefix import mount_key
 
 
 def _path(path: str) -> PathSpec:
-    return PathSpec.from_str_path(path, "/dbx")
+    return PathSpec.from_str_path(path, mount_key(path, "/dbx"))
 
 
 def _seed_directory(files, path: str) -> None:
@@ -37,8 +38,7 @@ def _seed_file(files, path: str, data: bytes) -> None:
         "Metadata",
         (),
         {
-            "is_directory": False,
-            "file_size": len(data),
+            "content_length": len(data),
         },
     )()
     files.directories.setdefault(parent, [])
@@ -73,7 +73,7 @@ async def test_write_overwrites_existing_file(accessor, files, remote_root,
     await write_bytes(accessor, _path("/dbx/new.txt"), b"new", index)
 
     assert files.downloads[f"{remote_root}/new.txt"] == b"new"
-    assert files.metadata[f"{remote_root}/new.txt"].file_size == 3
+    assert files.metadata[f"{remote_root}/new.txt"].content_length == 3
 
 
 @pytest.mark.asyncio

@@ -49,7 +49,8 @@ async def test_read_trace(accessor, index):
     ):
         result = await read(
             accessor,
-            PathSpec(original="/traces/abc123.json",
+            PathSpec(resource_path="traces/abc123.json",
+                     virtual="/traces/abc123.json",
                      directory="/traces/abc123.json"), index)
 
     parsed = json.loads(result)
@@ -67,7 +68,8 @@ async def test_read_prompt_version(accessor, index):
     ):
         result = await read(
             accessor,
-            PathSpec(original="/prompts/summarize/1.json",
+            PathSpec(resource_path="prompts/summarize/1.json",
+                     virtual="/prompts/summarize/1.json",
                      directory="/prompts/summarize/1.json"), index)
 
     parsed = json.loads(result)
@@ -96,7 +98,8 @@ async def test_read_dataset_items(accessor, index):
     ):
         result = await read(
             accessor,
-            PathSpec(original="/datasets/qa-eval/items.jsonl",
+            PathSpec(resource_path="datasets/qa-eval/items.jsonl",
+                     virtual="/datasets/qa-eval/items.jsonl",
                      directory="/datasets/qa-eval/items.jsonl"), index)
 
     lines = result.decode().strip().split("\n")
@@ -110,7 +113,8 @@ async def test_read_invalid_path_raises(accessor, index):
     with pytest.raises(FileNotFoundError):
         await read(
             accessor,
-            PathSpec(original="/not_a_valid_path",
+            PathSpec(resource_path="not_a_valid_path",
+                     virtual="/not_a_valid_path",
                      directory="/not_a_valid_path"), index)
 
 
@@ -124,7 +128,8 @@ async def test_read_session_trace(accessor, index):
     ):
         result = await read(
             accessor,
-            PathSpec(original="/sessions/sid1/tid1.json",
+            PathSpec(resource_path="sessions/sid1/tid1.json",
+                     virtual="/sessions/sid1/tid1.json",
                      directory="/sessions/sid1/tid1.json"), index)
 
     parsed = json.loads(result)

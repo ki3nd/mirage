@@ -18,6 +18,7 @@ from mirage.cache.index import IndexEntry
 from mirage.cache.index.ram import RAMIndexCacheStore
 from mirage.core.github.find import find
 from mirage.types import PathSpec
+from mirage.utils.key_prefix import mount_key
 
 
 def _index() -> RAMIndexCacheStore:
@@ -38,14 +39,16 @@ def _index() -> RAMIndexCacheStore:
 
 
 def _spec(path: str, prefix: str = "") -> PathSpec:
-    return PathSpec(original=path, directory=path, prefix=prefix)
+    return PathSpec(resource_path=mount_key(path, prefix),
+                    virtual=path,
+                    directory=path)
 
 
 @pytest.mark.asyncio
 async def test_find_all_from_root():
     results = await find(None, _spec("/"), index=_index())
     assert results == [
-        "/README.md", "/src", "/src/main.py", "/src/utils",
+        "/", "/README.md", "/src", "/src/main.py", "/src/utils",
         "/src/utils/helpers.py"
     ]
 
@@ -92,7 +95,27 @@ async def test_find_strips_mount_prefix():
 @pytest.mark.asyncio
 async def test_find_size_filters():
     results = await find(None, _spec("/"), min_size=100, index=_index())
+    assert results == ["/", "/src/main.py"]
+
+
+@pytest.mark.asyncio
+async def test_find_file_start_path():
+    results = await find(None, _spec("/src/main.py"), index=_index())
     assert results == ["/src/main.py"]
+
+
+@pytest.mark.asyncio
+async def test_find_size_filters_file_start():
+    too_big = await find(None,
+                         _spec("/src/main.py"),
+                         max_size=50,
+                         index=_index())
+    assert too_big == []
+    big_enough = await find(None,
+                            _spec("/src/main.py"),
+                            min_size=100,
+                            index=_index())
+    assert big_enough == ["/src/main.py"]
 
 
 @pytest.mark.asyncio

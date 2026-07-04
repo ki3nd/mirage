@@ -12,10 +12,11 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../utils/key_prefix.ts'
 import { type ByteSource, IOResult, materialize } from '../../io/types.ts'
 import type { Resource } from '../../resource/base.ts'
 import { PathSpec } from '../../types.ts'
-import type { Mount } from '../mount/mount.ts'
+import type { MountEntry } from '../mount/mount.ts'
 import type { MountRegistry } from '../mount/registry.ts'
 import { ExecutionNode } from '../types.ts'
 import { resolveAcrossMounts } from '../../commands/safeguard.ts'
@@ -43,7 +44,7 @@ export function shouldFanOut(
   registry: MountRegistry,
 ): boolean {
   if (paths.length === 0 || paths[0] === undefined) return false
-  if (registry.descendantMounts(paths[0].original).length === 0) return false
+  if (registry.descendantMounts(paths[0].virtual).length === 0) return false
   if (TRAVERSAL_CMDS.has(cmdName)) return true
   if (cmdName === 'grep') {
     return flagKwargs.r === true || flagKwargs.R === true || flagKwargs.recursive === true
@@ -108,7 +109,7 @@ function adjustDepthTexts(
 
 function synthesizeFindMountEntries(
   targetPath: string,
-  descendants: readonly Mount[],
+  descendants: readonly MountEntry[],
   texts: readonly string[],
 ): string {
   let expr: FindExpr
@@ -168,19 +169,27 @@ async function filterUnderPrefixes(
   return new TextEncoder().encode(outLines.join('\n') + '\n')
 }
 
+async function dropMountRootLine(stdout: ByteSource, mountRoot: string): Promise<Uint8Array> {
+  const data = await materialize(stdout)
+  const text = new TextDecoder().decode(data)
+  const outLines = text.split('\n').filter((line) => line !== '' && line !== mountRoot)
+  if (outLines.length === 0) return new Uint8Array()
+  return new TextEncoder().encode(outLines.join('\n') + '\n')
+}
+
 export async function fanOutTraversal(
   cmdName: string,
   paths: readonly PathSpec[],
   texts: readonly string[],
   flagKwargs: Record<string, string | boolean | string[]>,
   registry: MountRegistry,
-  primaryMount: Mount,
+  primaryMount: MountEntry,
   cwd: string,
   cmdStr: string,
   stdin: ByteSource | null,
   ensureOpen: ((resource: Resource) => Promise<void>) | undefined,
 ): Promise<Result> {
-  const targetPath = paths[0]?.original ?? cwd
+  const targetPath = paths[0]?.virtual ?? cwd
   const descendants = registry.descendantMounts(targetPath)
   const descendantPrefixes = descendants.map((m) => rstripSlash(m.prefix))
 
@@ -189,7 +198,7 @@ export async function fanOutTraversal(
   let finalExit = 0
   let successSeen = false
 
-  const mountsToRun: Mount[] = [primaryMount, ...descendants]
+  const mountsToRun: MountEntry[] = [primaryMount, ...descendants]
   for (const mount of mountsToRun) {
     let subPaths: PathSpec[]
     let subFlags: Record<string, string | boolean | string[]>
@@ -206,9 +215,9 @@ export async function fanOutTraversal(
       const mountRoot = rstripSlash(mount.prefix) || '/'
       subPaths = [
         new PathSpec({
-          original: mountRoot,
+          virtual: mountRoot,
           directory: mountRoot,
-          prefix: rstripSlash(mount.prefix),
+          resourcePath: mountKey(mountRoot, rstripSlash(mount.prefix)),
         }),
       ]
     }
@@ -233,6 +242,8 @@ export async function fanOutTraversal(
     }
     if (mount === primaryMount && descendantPrefixes.length > 0 && stdout !== null) {
       stdout = await filterUnderPrefixes(stdout, descendantPrefixes)
+    } else if (mount !== primaryMount && cmdName === 'find' && stdout !== null) {
+      stdout = await dropMountRootLine(stdout, rstripSlash(mount.prefix) || '/')
     }
     if (stdout !== null) {
       const data = await materialize(stdout)

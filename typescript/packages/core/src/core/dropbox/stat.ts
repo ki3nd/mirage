@@ -12,11 +12,11 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { DropboxAccessor } from '../../accessor/dropbox.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { FileStat, FileType, PathSpec } from '../../types.ts'
 import { readdir as coreReaddir } from './readdir.ts'
-import { stripSlash } from '../../utils/slash.ts'
 import { enoent } from '../../utils/errors.ts'
 
 function guessType(name: string): FileType {
@@ -44,13 +44,11 @@ export async function stat(
   index?: IndexCacheStore,
 ): Promise<FileStat> {
   void accessor
-  const prefix = path.prefix
-  let p = path.original
-  if (prefix !== '' && p.startsWith(prefix)) p = p.slice(prefix.length) || '/'
-  const key = stripSlash(p)
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  const key = path.resourcePath
   if (key === '') return new FileStat({ name: '/', type: FileType.DIRECTORY })
 
-  if (index === undefined) throw enoent(path.original)
+  if (index === undefined) throw enoent(path.virtual)
   const virtualKey = prefix !== '' ? `${prefix}/${key}` : `/${key}`
   let result = await index.get(virtualKey)
   if (result.entry === undefined || result.entry === null) {
@@ -61,10 +59,10 @@ export async function stat(
       await coreReaddir(
         accessor,
         new PathSpec({
-          original: parentVirtual,
+          virtual: parentVirtual,
           directory: parentVirtual,
           resolved: false,
-          prefix,
+          resourcePath: mountKey(parentVirtual, prefix),
         }),
         index,
       )
@@ -73,7 +71,7 @@ export async function stat(
     }
     result = await index.get(virtualKey)
     if (result.entry === undefined || result.entry === null) {
-      throw enoent(path.original)
+      throw enoent(path.virtual)
     }
   }
   if (result.entry.resourceType === 'dropbox/folder') {

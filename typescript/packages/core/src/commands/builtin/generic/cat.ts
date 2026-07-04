@@ -14,7 +14,6 @@
 
 import { CachableAsyncIterator } from '../../../io/cachable_iterator.ts'
 import { IOResult, type ByteSource } from '../../../io/types.ts'
-import { ProvisionResult } from '../../../provision/types.ts'
 import type { FileStat, PathSpec } from '../../../types.ts'
 import type { CommandFnResult, CommandOpts } from '../../config.ts'
 import { resolveSource } from '../utils/stream.ts'
@@ -59,22 +58,6 @@ export async function* numberLines(source: AsyncIterable<Uint8Array>): AsyncIter
   }
 }
 
-export async function catProvisionGeneric(paths: PathSpec[], stat: Stat): Promise<ProvisionResult> {
-  const [first] = paths
-  if (first === undefined) return new ProvisionResult({ command: 'cat' })
-  try {
-    const s = await stat(first)
-    return new ProvisionResult({
-      command: `cat ${first.original}`,
-      networkReadLow: s.size ?? 0,
-      networkReadHigh: s.size ?? 0,
-      readOps: 1,
-    })
-  } catch {
-    return new ProvisionResult({ command: 'cat' })
-  }
-}
-
 async function* chainStreams(
   streams: readonly AsyncIterable<Uint8Array>[],
 ): AsyncIterable<Uint8Array> {
@@ -98,8 +81,8 @@ export async function catGeneric(
     const outputs: AsyncIterable<Uint8Array>[] = []
     for (const p of paths) {
       const cachable = new CachableAsyncIterator(stream(p))
-      reads[p.stripPrefix] = cachable
-      cacheKeys.push(p.stripPrefix)
+      reads[p.mountPath] = cachable
+      cacheKeys.push(p.mountPath)
       outputs.push(cachable)
     }
     const merged = chainStreams(outputs)

@@ -13,15 +13,18 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.ram import RAMAccessor
+from mirage.cache.context import invalidate_after_unlink
 from mirage.types import PathSpec
 from mirage.utils.path import norm
 
 
 async def rm_r(accessor: RAMAccessor, path: PathSpec) -> None:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     store = accessor.store
     p = norm(path)
     prefix = p.rstrip("/") + "/"
@@ -33,3 +36,4 @@ async def rm_r(accessor: RAMAccessor, path: PathSpec) -> None:
         if key == p or key.startswith(prefix):
             store.dirs.discard(key)
             store.modified.pop(key, None)
+    await invalidate_after_unlink(path)

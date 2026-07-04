@@ -39,18 +39,17 @@ async def readdir(
         index (IndexCacheStore | None): index cache.
     """
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec.from_str_path(path)
     scope = detect(path)
     if scope.level == "invalid":
-        raise enoent(path.original)
+        raise enoent(path)
     if scope.level != "root":
-        raise enotdir(path.original)
+        raise enotdir(path)
 
-    prefix = path.prefix
-    virtual_key = prefix or "/"
+    dir_key = path.virtual
 
     if index is not None:
-        listing = await index.list_dir(virtual_key)
+        listing = await index.list_dir(dir_key)
         if listing.entries is not None:
             return listing.entries
 
@@ -74,7 +73,7 @@ async def readdir(
             extra={"memory": m},
         )
         entries.append((filename, entry))
-        names.append(f"{prefix}/{filename}")
+        names.append(f"{dir_key.rstrip('/')}/{filename}")
     if index is not None:
-        await index.set_dir(virtual_key, entries)
+        await index.set_dir(dir_key, entries)
     return names

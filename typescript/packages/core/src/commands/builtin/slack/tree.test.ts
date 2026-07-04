@@ -12,12 +12,15 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { RAMIndexCacheStore } from '../../../cache/index/ram.ts'
 import { materialize } from '../../../io/types.ts'
 import { PathSpec } from '../../../types.ts'
 import { FakeSlackTransport, makeFakeResource, seedChannel } from './_test_util.ts'
-import { SLACK_TREE } from './tree.ts'
+import { SLACK_COMMANDS } from './index.ts'
+
+const SLACK_TREE = SLACK_COMMANDS.filter((c) => c.name === 'tree' && c.filetype == null)
 
 const DEC = new TextDecoder()
 
@@ -51,10 +54,10 @@ describe('slack tree', () => {
     const out = await runTree(
       [
         new PathSpec({
-          original: '/mnt/slack',
+          virtual: '/mnt/slack',
           directory: '/mnt/slack',
           resolved: false,
-          prefix: '/mnt/slack',
+          resourcePath: mountKey('/mnt/slack', '/mnt/slack'),
         }),
       ],
       { L: '1' },
@@ -76,10 +79,10 @@ describe('slack tree', () => {
     const out = await runTree(
       [
         new PathSpec({
-          original: '/mnt/slack/channels',
+          virtual: '/mnt/slack/channels',
           directory: '/mnt/slack/channels',
           resolved: false,
-          prefix: '/mnt/slack',
+          resourcePath: mountKey('/mnt/slack/channels', '/mnt/slack'),
         }),
       ],
       {},

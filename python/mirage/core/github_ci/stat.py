@@ -17,6 +17,7 @@ from mirage.cache.index import IndexCacheStore
 from mirage.core.github_ci.readdir import readdir as _readdir
 from mirage.types import FileStat, FileType, PathSpec
 from mirage.utils.errors import enoent
+from mirage.utils.key_prefix import mount_key, mount_prefix_of
 
 VIRTUAL_DIRS = {"workflows", "runs", "jobs", "artifacts"}
 
@@ -34,9 +35,9 @@ async def _lookup_with_fallback(
     try:
         await _readdir(
             accessor,
-            PathSpec(original=parent_virtual,
+            PathSpec(virtual=parent_virtual,
                      directory=parent_virtual,
-                     prefix=prefix),
+                     resource_path=mount_key(parent_virtual, prefix)),
             index=index,
         )
     # best-effort cache populate; canonical ENOENT raised below
@@ -51,16 +52,12 @@ async def stat(
     index: IndexCacheStore = None,
 ) -> FileStat:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
-    virtual = path.original
-    if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.original
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
-    key = path.strip("/")
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
+    prefix = mount_prefix_of(path.virtual, path.resource_path)
+    key = path.resource_path
 
     if not key:
         return FileStat(name="/", type=FileType.DIRECTORY)
@@ -82,6 +79,7 @@ async def stat(
         return FileStat(
             name=lookup.entry.vfs_name or lookup.entry.name,
             type=FileType.JSON,
+            modified=lookup.entry.remote_time or None,
             extra={"workflow_id": lookup.entry.id},
         )
 
@@ -95,6 +93,7 @@ async def stat(
         return FileStat(
             name=lookup.entry.vfs_name or lookup.entry.name,
             type=FileType.DIRECTORY,
+            modified=lookup.entry.remote_time or None,
             extra={"run_id": lookup.entry.id},
         )
 
@@ -119,6 +118,7 @@ async def stat(
         return FileStat(
             name=lookup.entry.vfs_name or lookup.entry.name,
             type=FileType.JSON,
+            modified=lookup.entry.remote_time or None,
             extra={"job_id": lookup.entry.id},
         )
 
@@ -133,6 +133,7 @@ async def stat(
         return FileStat(
             name=lookup.entry.vfs_name or lookup.entry.name,
             type=FileType.TEXT,
+            modified=lookup.entry.remote_time or None,
             extra={"job_id": lookup.entry.id},
         )
 
@@ -147,6 +148,7 @@ async def stat(
             name=lookup.entry.vfs_name or lookup.entry.name,
             type=FileType.ZIP,
             size=lookup.entry.size,
+            modified=lookup.entry.remote_time or None,
             extra={"artifact_id": lookup.entry.id},
         )
 

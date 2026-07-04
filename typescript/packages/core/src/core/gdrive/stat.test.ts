@@ -43,7 +43,11 @@ describe('gdrive stat shared drives', () => {
     )
     const result = await stat(
       accessor,
-      new PathSpec({ original: '/Team Drive', directory: '/Team Drive' }),
+      new PathSpec({
+        resourcePath: 'Team Drive',
+        virtual: '/Team Drive',
+        directory: '/Team Drive',
+      }),
       index,
     )
     expect(result.type).toBe(FileType.DIRECTORY)

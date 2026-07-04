@@ -74,7 +74,8 @@ async def test_date_dir_contents_lists_chat_and_files(accessor, index):
                return_value=fake_messages):
         result = await readdir(
             accessor,
-            PathSpec(original="/G/channels/ch/2024-04-04",
+            PathSpec(resource_path="G/channels/ch/2024-04-04",
+                     virtual="/G/channels/ch/2024-04-04",
                      directory="/G/channels/ch/2024-04-04"),
             index,
         )
@@ -101,7 +102,8 @@ async def test_files_dir_lists_attachments(accessor, index):
                return_value=fake_messages):
         result = await readdir(
             accessor,
-            PathSpec(original="/G/channels/ch/2024-04-04/files",
+            PathSpec(resource_path="G/channels/ch/2024-04-04/files",
+                     virtual="/G/channels/ch/2024-04-04/files",
                      directory="/G/channels/ch/2024-04-04/files"),
             index,
         )
@@ -121,7 +123,8 @@ async def test_fetch_day_swallows_soft_errors(accessor, index):
                side_effect=err):
         result = await readdir(
             accessor,
-            PathSpec(original="/G/channels/ch/2024-04-04",
+            PathSpec(resource_path="G/channels/ch/2024-04-04",
+                     virtual="/G/channels/ch/2024-04-04",
                      directory="/G/channels/ch/2024-04-04"),
             index,
         )
@@ -143,7 +146,8 @@ async def test_fetch_day_propagates_hard_errors(accessor, index):
         with pytest.raises(aiohttp.ClientResponseError):
             await readdir(
                 accessor,
-                PathSpec(original="/G/channels/ch/2024-04-04",
+                PathSpec(resource_path="G/channels/ch/2024-04-04",
+                         virtual="/G/channels/ch/2024-04-04",
                          directory="/G/channels/ch/2024-04-04"),
                 index,
             )

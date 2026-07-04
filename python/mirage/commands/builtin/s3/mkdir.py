@@ -14,6 +14,8 @@
 
 from mirage.accessor.s3 import S3Accessor
 from mirage.cache.index import IndexCacheStore
+from mirage.commands.builtin.generic_bind.provision import \
+    write_metadata_provision
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
 from mirage.core.s3.glob import resolve_glob
@@ -22,7 +24,11 @@ from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
 
 
-@command("mkdir", resource="s3", spec=SPECS["mkdir"], write=True)
+@command("mkdir",
+         resource="s3",
+         spec=SPECS["mkdir"],
+         write=True,
+         provision=write_metadata_provision)
 async def mkdir(
     accessor: S3Accessor,
     paths: list[PathSpec],
@@ -40,8 +46,8 @@ async def mkdir(
     writes: dict[str, bytes] = {}
     for path in paths:
         await mkdir_impl(accessor, path)
-        writes[path.strip_prefix] = b""
+        writes[path.mount_path] = b""
         if v:
-            lines.append(f"mkdir: created directory '{path.original}'")
+            lines.append(f"mkdir: created directory '{path.virtual}'")
     output = ("\n".join(lines) + "\n").encode() if lines else None
     return output, IOResult(writes=writes)

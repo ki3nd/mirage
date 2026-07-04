@@ -124,14 +124,11 @@ async def read(
     index: IndexCacheStore = None,
 ) -> bytes:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
-    virtual = path.original
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
     if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.original
+        path = path.mount_path
 
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
     return await read_bytes(accessor.config, path, virtual)

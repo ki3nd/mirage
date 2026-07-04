@@ -12,11 +12,11 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { LinearAccessor } from '../../accessor/linear.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { FileStat, FileType, PathSpec } from '../../types.ts'
 import { readdir as coreReaddir } from './readdir.ts'
-import { stripSlash } from '../../utils/slash.ts'
 import { enoent } from '../../utils/errors.ts'
 
 const VIRTUAL_DIRS = new Set(['', 'teams'])
@@ -41,10 +41,10 @@ async function lookupWithFallback(
     await coreReaddir(
       accessor,
       new PathSpec({
-        original: parentVirtual,
+        virtual: parentVirtual,
         directory: parentVirtual,
         resolved: false,
-        prefix,
+        resourcePath: mountKey(parentVirtual, prefix),
       }),
       index,
     )
@@ -59,12 +59,8 @@ export async function stat(
   path: PathSpec,
   index?: IndexCacheStore,
 ): Promise<FileStat> {
-  const prefix = path.prefix
-  let p = path.original
-  if (prefix !== '' && p.startsWith(prefix)) {
-    p = p.slice(prefix.length) || '/'
-  }
-  const key = stripSlash(p)
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  const key = path.resourcePath
   const virtualKey = makeVirtualKey(prefix, key)
 
   if (VIRTUAL_DIRS.has(key)) {
@@ -80,6 +76,7 @@ export async function stat(
     return new FileStat({
       name: result.entry.vfsName,
       type: FileType.DIRECTORY,
+      modified: result.entry.remoteTime,
       extra: { team_id: result.entry.id },
     })
   }
@@ -111,6 +108,7 @@ export async function stat(
     return new FileStat({
       name: result.entry.vfsName,
       type: FileType.JSON,
+      modified: result.entry.remoteTime,
       extra: { user_id: result.entry.id },
     })
   }
@@ -122,6 +120,7 @@ export async function stat(
     return new FileStat({
       name: result.entry.vfsName,
       type: FileType.DIRECTORY,
+      modified: result.entry.remoteTime,
       extra: { issue_id: result.entry.id },
     })
   }
@@ -161,6 +160,7 @@ export async function stat(
     return new FileStat({
       name: result.entry.vfsName,
       type: FileType.JSON,
+      modified: result.entry.remoteTime,
       extra: { [idKey]: result.entry.id },
     })
   }

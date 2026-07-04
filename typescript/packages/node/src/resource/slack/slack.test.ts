@@ -12,7 +12,13 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { ResourceName, SLACK_COMMANDS, SLACK_VFS_OPS, PathSpec } from '@struktoai/mirage-core'
+import {
+  PathSpec,
+  ResourceName,
+  SLACK_COMMANDS,
+  SLACK_VFS_OPS,
+  mountKey,
+} from '@struktoai/mirage-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildResource } from '../registry.ts'
 import { normalizeSlackConfig, redactSlackConfig } from './config.ts'
@@ -40,7 +46,7 @@ describe('SlackResource (node)', () => {
   it('constructs with token and exposes expected fields', () => {
     const r = new SlackResource({ token: 'xoxb-test' })
     expect(r.kind).toBe(ResourceName.SLACK)
-    expect(r.isRemote).toBe(true)
+    expect(r.cachesReads).toBe(true)
     expect(r.indexTtl).toBe(600)
     expect(r.config).toEqual({ token: 'xoxb-test' })
     expect(typeof r.prompt).toBe('string')
@@ -94,9 +100,9 @@ describe('SlackResource (node)', () => {
     const r = new SlackResource({ token: 'xoxb-test' })
     const out = await r.readdir(
       new PathSpec({
-        original: '/mnt/slack/channels',
+        virtual: '/mnt/slack/channels',
         directory: '/mnt/slack/channels',
-        prefix: '/mnt/slack',
+        resourcePath: mountKey('/mnt/slack/channels', '/mnt/slack'),
       }),
     )
     expect(out).toEqual(['/mnt/slack/channels/general__C1', '/mnt/slack/channels/eng__C2'])

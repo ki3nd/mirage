@@ -49,14 +49,14 @@ async def stat(
         index (IndexCacheStore | None): index cache.
     """
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec.from_str_path(path)
     scope = detect(path)
     if scope.level == "root":
         return FileStat(name="/", type=FileType.DIRECTORY)
     if scope.level != "memory":
-        raise enoent(path.original)
+        raise enoent(path)
     if index is not None:
-        lookup = await index.get(path.original)
+        lookup = await index.get(path.virtual)
         if lookup.entry is not None and lookup.entry.extra.get("memory"):
             return _file_stat(lookup.entry.extra["memory"])
     memory = await get_memory(accessor.client, scope.memory_id)

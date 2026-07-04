@@ -18,6 +18,8 @@ import {
   command,
   compilePattern,
   grepLines,
+  mountPrefixOf,
+  patternArg,
   rgGeneric,
   specOf,
   type ByteSource,
@@ -52,13 +54,13 @@ async function rgCommand(
   texts: string[],
   opts: CommandOpts,
 ): Promise<CommandFnResult> {
-  if (texts.length === 0 || texts[0] === undefined) {
+  const pattern = patternArg(texts, opts.flags)
+  if (pattern === null) {
     return [
       null,
       new IOResult({ exitCode: 2, stderr: ENC.encode('rg: usage: rg [flags] pattern [path]\n') }),
     ]
   }
-  const pattern = texts[0]
   const ignoreCase = opts.flags.i === true
   const invert = opts.flags.v === true
   const lineNumbers = opts.flags.n === true
@@ -83,8 +85,11 @@ async function rgCommand(
     const first = paths[0]
     if (first !== undefined) {
       const scope = detectScope(first)
-      if (scope.useNative) {
-        const filePrefix = first.prefix !== '' ? first.prefix : ''
+      if (scope.useNative && !pattern.includes('\n')) {
+        const filePrefix =
+          mountPrefixOf(first.virtual, first.resourcePath) !== ''
+            ? mountPrefixOf(first.virtual, first.resourcePath)
+            : ''
         const pairs = await searchAndFormat(accessor, scope, pattern, filePrefix, maxCount ?? 50)
         const lines: string[] = []
         for (const [vfsPath, msgText] of pairs) {

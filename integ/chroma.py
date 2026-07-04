@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import chromadb  # noqa: E402
-from cases import run_not_found  # noqa: E402
+from cases import run_not_found, run_provision_probe  # noqa: E402
 
 from mirage import MountMode, Workspace  # noqa: E402
 from mirage.resource.chroma import ChromaConfig, ChromaResource  # noqa: E402
@@ -171,6 +171,8 @@ CASES: list[tuple[str, str]] = [
     ("tree", "tree {root}"),
     ("find_md", "find {root} -name '*.md'"),
     ("find_type_f", "find {root} -type f | sort"),
+    ("find_root_maxdepth0", "find {root} -maxdepth 0"),
+    ("find_root_name", "find {root} -name knowledge"),
     # cold (bespoke) then warm (cache-mount generic) must be identical
     ("grep_cold_single", "grep bearer {root}guides/auth.md"),
     ("grep_warm_single", "grep bearer {root}guides/auth.md"),
@@ -205,6 +207,19 @@ CASES: list[tuple[str, str]] = [
     ("poison_second_intact", "cat {root}guides/auth.md"),
     ("pipe_concat_head",
      "cat {root}guides/quickstart.md {root}guides/auth.md | head -n 1"),
+    # du has no native op -> exercises the stat/readdir walk fallback,
+    # which must match the Python du builder byte for byte.
+    ("du_guides", "du {root}guides"),
+    ("du_root", "du {root}"),
+    ("du_c_multi", "du -c {root}guides {root}policies"),
+    # symlink into the mount: links are namespace state, so they work on a
+    # read-only backend (no backend write happens)
+    ("sym_ln", "ln -s {root}guides/auth.md {root}meta_link"),
+    ("sym_readlink", "readlink {root}meta_link"),
+    ("sym_cat", "cat {root}meta_link"),
+    ("sym_wc", "wc -l {root}meta_link"),
+    ("sym_ls", "ls -F {root} | grep meta_link"),
+    ("sym_rm", "rm {root}meta_link && ls {root}"),
 ]
 
 
@@ -266,6 +281,7 @@ async def main() -> None:
     for name, tmpl in CASES:
         await run_case(ws, name, tmpl.format(root=MOUNT))
     await run_not_found(ws, MOUNT)
+    await run_provision_probe(ws, f"{MOUNT}guides/auth.md")
 
 
 if __name__ == "__main__":

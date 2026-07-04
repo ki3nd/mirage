@@ -26,7 +26,11 @@ async def test_mkdir():
     s = RAMStore()
 
     a = RAMAccessor(s)
-    await mkdir(a, PathSpec(original="/newdir", directory="/newdir"))
+    await mkdir(
+        a,
+        PathSpec(resource_path="newdir",
+                 virtual="/newdir",
+                 directory="/newdir"))
     assert "/newdir" in s.dirs
     assert "/newdir" in s.modified
 
@@ -38,7 +42,11 @@ async def test_mkdir_parent_not_found():
     a = RAMAccessor(s)
     with pytest.raises(FileNotFoundError,
                        match="parent directory does not exist"):
-        await mkdir(a, PathSpec(original="/no/parent", directory="/no/parent"))
+        await mkdir(
+            a,
+            PathSpec(resource_path="no/parent",
+                     virtual="/no/parent",
+                     directory="/no/parent"))
 
 
 @pytest.mark.asyncio
@@ -46,8 +54,10 @@ async def test_mkdir_already_exists():
     s = RAMStore()
 
     a = RAMAccessor(s)
-    await mkdir(a, PathSpec(original="/dir", directory="/dir"))
-    await mkdir(a, PathSpec(original="/dir", directory="/dir"))
+    await mkdir(
+        a, PathSpec(resource_path="dir", virtual="/dir", directory="/dir"))
+    await mkdir(
+        a, PathSpec(resource_path="dir", virtual="/dir", directory="/dir"))
     assert "/dir" in s.dirs
 
 
@@ -57,7 +67,9 @@ async def test_mkdir_with_parents():
 
     a = RAMAccessor(s)
     await mkdir(a,
-                PathSpec(original="/a/b/c", directory="/a/b/c"),
+                PathSpec(resource_path="a/b/c",
+                         virtual="/a/b/c",
+                         directory="/a/b/c"),
                 parents=True)
     assert "/a" in s.dirs
     assert "/a/b" in s.dirs

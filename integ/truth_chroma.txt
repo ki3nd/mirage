@@ -25,6 +25,10 @@ quickstart.md
 /knowledge/guides/quickstart.md
 /knowledge/policies/privacy.md
 /knowledge/policies/refunds.md
+=== find_root_maxdepth0 ===
+/knowledge
+=== find_root_name ===
+/knowledge
 === grep_cold_single ===
 Authentication uses bearer tokens via the Authorization header.
 === grep_warm_single ===
@@ -114,6 +118,30 @@ Requests are rate limited to 100 calls per minute per token.
 If you exceed the limit you receive HTTP 429 and must back off.
 === pipe_concat_head ===
 Welcome to Acme. This quickstart gets you running fast.
+=== du_guides ===
+370	/knowledge/guides
+=== du_root ===
+730	/knowledge
+=== du_c_multi ===
+370	/knowledge/guides
+270	/knowledge/policies
+640	total
+=== sym_ln ===
+
+=== sym_readlink ===
+/knowledge/guides/auth.md
+=== sym_cat ===
+Authentication uses bearer tokens via the Authorization header.
+Requests are rate limited to 100 calls per minute per token.
+If you exceed the limit you receive HTTP 429 and must back off.
+=== sym_wc ===
+2 /knowledge/meta_link
+=== sym_ls ===
+meta_link@
+=== sym_rm ===
+CHANGELOG.md
+guides
+policies
 === nf_cat ===
 exit=1
 cat: /knowledge/__nf_missing__.txt: No such file or directory
@@ -132,3 +160,9 @@ stat: /knowledge/__nf_missing__.txt: No such file or directory
 === nf_grep ===
 exit=1
 grep: /knowledge/__nf_missing__.txt: No such file or directory
+=== prov_probe_cat ===
+net=190 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_probe_grep ===
+net=190 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_probe_ls ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=exact

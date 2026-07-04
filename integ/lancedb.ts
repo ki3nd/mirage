@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as lancedb from "@lancedb/lancedb";
 import { LanceDBResource, MountMode, Workspace } from "@struktoai/mirage-node";
-import { runNotFound } from "./cases.ts";
+import { runNotFound, runProvisionProbe } from "./cases.ts";
 
 const MOUNT = "/db/";
 
@@ -62,6 +62,12 @@ const CASES: [string, string][] = [
   ["grep_E_alt", 'grep -E "orange|brown" {root}animals/cat/big/1.md'],
   ["pipe_grep_stdin", "cat {root}animals/cat/big/1.md | grep orange"],
   ["rg_basic", "rg orange {root}animals/cat/big/1.md"],
+  // du has no native op on lancedb -> exercises the stat/readdir walk
+  // fallback, which must match the Python du builder byte for byte.
+  ["du_file", "du {root}animals/cat/big/1.md"],
+  ["du_group", "du {root}animals/cat"],
+  ["du_table", "du {root}animals"],
+  ["du_c_multi", "du -c {root}animals/cat {root}animals/dog"],
 ];
 
 const EXIT_CODE_CASES: [string, string][] = [
@@ -109,6 +115,7 @@ async function main(): Promise<void> {
     try {
       await runCases(ws);
       await runNotFound(ws, MOUNT);
+      await runProvisionProbe(ws, `${MOUNT}animals/cat/big/1.md`);
     } finally {
       await ws.close();
     }

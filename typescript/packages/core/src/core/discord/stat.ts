@@ -12,10 +12,12 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { DiscordAccessor } from '../../accessor/discord.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { FileStat, FileType, PathSpec } from '../../types.ts'
-import { readdir as coreReaddir } from './readdir.ts'
+import { readdir as coreReaddir, snowflakeToIso } from './readdir.ts'
+import { filetypeFromMimetype } from '../../utils/filetype.ts'
 import { stripSlash } from '../../utils/slash.ts'
 
 const VIRTUAL_DIRS: ReadonlySet<string> = new Set(['channels', 'members'])
@@ -41,10 +43,10 @@ async function lookupWithFallback(
     await coreReaddir(
       accessor,
       new PathSpec({
-        original: parentVirtual,
+        virtual: parentVirtual,
         directory: parentVirtual,
         resolved: false,
-        prefix,
+        resourcePath: mountKey(parentVirtual, prefix),
       }),
       index,
     )
@@ -59,8 +61,8 @@ export async function stat(
   path: PathSpec,
   index?: IndexCacheStore,
 ): Promise<FileStat> {
-  const prefix = path.prefix
-  let raw = path.original
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  let raw = path.virtual
   if (prefix !== '' && raw.startsWith(prefix)) {
     raw = raw.slice(prefix.length) || '/'
   }
@@ -101,6 +103,7 @@ export async function stat(
     return new FileStat({
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       type: FileType.DIRECTORY,
+      modified: snowflakeToIso(lookup.entry.remoteTime),
       extra: { channel_id: lookup.entry.id },
     })
   }
@@ -149,7 +152,7 @@ export async function stat(
     return new FileStat({
       name: lookup.entry.vfsName !== '' ? lookup.entry.vfsName : lookup.entry.name,
       ...(lookup.entry.size !== null ? { size: lookup.entry.size } : {}),
-      type: mime !== '' ? (mime as FileType) : FileType.BINARY,
+      type: filetypeFromMimetype(mime),
       extra: { content_type: mime, attachment_id: lookup.entry.id },
     })
   }

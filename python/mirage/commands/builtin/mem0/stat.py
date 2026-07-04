@@ -32,7 +32,7 @@ async def stat_provision(
     **_extra: object,
 ) -> ProvisionResult:
     return await metadata_provision("stat " + " ".join(
-        p.original if isinstance(p, PathSpec) else p for p in paths))
+        p.display if isinstance(p, PathSpec) else p for p in paths))
 
 
 @command("stat", resource="mem0", spec=SPECS["stat"], provision=stat_provision)

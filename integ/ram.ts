@@ -13,12 +13,16 @@
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 import { MountMode, RAMResource, Workspace } from '@struktoai/mirage-node'
-import { runCases } from './cases.ts'
+import { assertRealMtime, runCases } from './cases.ts'
 
 async function main(): Promise<void> {
-  const ws = new Workspace({ '/data': new RAMResource() }, { mode: MountMode.WRITE })
+  const ws = new Workspace(
+    { '/data': new RAMResource(), '/data2': new RAMResource() },
+    { mode: MountMode.WRITE },
+  )
   try {
     await runCases(ws)
+    await assertRealMtime(ws)
   } finally {
     await ws.close()
   }

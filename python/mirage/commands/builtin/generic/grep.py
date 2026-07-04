@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from functools import partial
 
 from mirage.cache.index import IndexCacheStore
+from mirage.cache.read_through import (cache_aware_read_bytes,
+                                       cache_aware_read_stream)
 from mirage.commands.builtin.grep_helper import (  # yapf: disable
     compile_pattern, count_exit_stream, count_records_have_matches,
     grep_files_only, grep_lines, grep_recursive, grep_stream, resolve_pattern)
@@ -19,6 +21,8 @@ from mirage.commands.spec.types import FlagView
 from mirage.io.stream import exit_on_empty, quiet_match
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import FileStat, FileType, PathSpec
+from mirage.utils.key_prefix import mount_prefix_of
+from mirage.utils.path import rebase_display
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +82,6 @@ async def grep(
     read_stream: Callable[..., AsyncIterator[bytes]] | None,
     accessor: object = None,
     stdin: AsyncIterator[bytes] | bytes | None = None,
-    scope_check: Callable[..., Awaitable[str | None]] | None = None,
-    show_filename: bool = False,
     index: IndexCacheStore | None = None,
 ) -> tuple[ByteSource | None, IOResult]:
     """Run grep-style fallback search over backend paths or stdin.
@@ -103,16 +105,15 @@ async def grep(
         accessor (object): Backend accessor passed through wrapper helpers.
         stdin (AsyncIterator[bytes] | bytes | None): Input used when paths is
             empty.
-        scope_check (Callable[..., Awaitable[str | None]] | None): Optional
-            backend warning hook.
-        show_filename (bool): Force filename prefixes on a single path,
-            for callers that pre-expanded a multi-file scope.
         index (IndexCacheStore | None): Optional cache index for wrapped
             backend calls.
 
     Returns:
         tuple[ByteSource | None, IOResult]: Output stream and exit metadata.
     """
+    read_bytes = cache_aware_read_bytes(read_bytes)
+    if read_stream is not None:
+        read_stream = cache_aware_read_stream(read_stream)
     fl = FlagView(flags, spec=SPECS["grep"])
     pattern, never_match = await resolve_pattern(
         texts, fl, read_bytes, accessor, index,
@@ -120,7 +121,8 @@ async def grep(
     f = parse_flags(fl, never_match)
 
     if paths:
-        mount_prefix = paths[0].prefix
+        mount_prefix = mount_prefix_of(paths[0].virtual,
+                                       paths[0].resource_path)
         rd = partial(call_readdir,
                      readdir,
                      accessor,
@@ -137,22 +139,15 @@ async def grep(
                      index=index,
                      prefix=mount_prefix)
 
-        scope_warning_str: str | None = None
-        if scope_check is not None and not paths[0].resolved:
-            scope_warning_str = await scope_check(rd, st, paths[0],
-                                                  f.recursive)
-
         if f.files_only:
             warnings: list[str] = []
-            if scope_warning_str:
-                warnings.append(scope_warning_str)
             results: list[str] = []
             for p in paths:
                 hits = await grep_files_only(
                     rd,
                     st,
                     rb,
-                    p.original,
+                    p.virtual,
                     pattern,
                     recursive=f.recursive,
                     ignore_case=f.ignore_case,
@@ -166,7 +161,7 @@ async def grep(
                     warnings=warnings,
                     read_stream_fn=None,
                 )
-                results.extend(hits)
+                results.extend(rebase_display(hits, p.virtual, p.display))
             stderr = format_optional_records(warnings)
             if not results:
                 return b"", IOResult(exit_code=1, stderr=stderr)
@@ -185,16 +180,14 @@ async def grep(
             # (head, grep -m, grep -q) abort the walk after enough matches.
             all_results: list[str] = []
             warnings = []
-            if scope_warning_str:
-                warnings.append(scope_warning_str)
             for p in paths:
-                s = await st(p.original)
+                s = await st(p.virtual)
                 if s.type == FileType.DIRECTORY:
                     res = await grep_recursive(
                         rd,
                         st,
                         rb,
-                        p.original,
+                        p.virtual,
                         pat,
                         invert=f.invert,
                         line_numbers=f.line_numbers,
@@ -205,18 +198,19 @@ async def grep(
                         warnings=warnings,
                         read_stream_fn=None,
                     )
-                    all_results.extend(res)
+                    all_results.extend(
+                        rebase_display(res, p.virtual, p.display))
                 else:
                     data = split_lines(
-                        (await rb(p.original)).decode(errors="replace"))
-                    hits = grep_lines(p.original, data, pat, f.invert,
+                        (await rb(p.virtual)).decode(errors="replace"))
+                    hits = grep_lines(p.display, data, pat, f.invert,
                                       f.line_numbers, f.count_only,
                                       f.files_only, f.only_matching,
                                       f.max_count)
                     if f.count_only and hits:
-                        all_results.append(f"{p.original}:{hits[0]}")
+                        all_results.append(f"{p.display}:{hits[0]}")
                     else:
-                        all_results.extend(f"{p.original}:{rl}" for rl in hits)
+                        all_results.extend(f"{p.display}:{rl}" for rl in hits)
             stderr = format_optional_records(warnings)
             if not all_results:
                 return b"", IOResult(exit_code=1, stderr=stderr)
@@ -228,32 +222,31 @@ async def grep(
         pat = compile_pattern(pattern, f.ignore_case, f.fixed_string,
                               f.whole_word)
 
-        if len(paths) > 1 or show_filename:
+        if len(paths) > 1:
             all_results = []
             multi_warnings: list[str] = []
             for p in paths:
                 try:
-                    s = await st(p.original)
+                    s = await st(p.virtual)
                 except FileNotFoundError:
                     multi_warnings.append(
-                        f"grep: {p.original}: No such file or directory")
+                        f"grep: {p.display}: No such file or directory")
                     continue
                 if s.type == FileType.DIRECTORY:
-                    multi_warnings.append(
-                        f"grep: {p.original}: Is a directory")
+                    multi_warnings.append(f"grep: {p.display}: Is a directory")
                     continue
                 data = split_lines((await
-                                    rb(p.original)).decode(errors="replace"))
-                hits = grep_lines(p.original, data, pat, f.invert,
+                                    rb(p.virtual)).decode(errors="replace"))
+                hits = grep_lines(p.display, data, pat, f.invert,
                                   f.line_numbers, f.count_only, f.files_only,
                                   f.only_matching, f.max_count)
                 if f.count_only:
                     if hits:
-                        all_results.append(f"{p.original}:{hits[0]}")
+                        all_results.append(f"{p.display}:{hits[0]}")
                 elif f.files_only:
                     all_results.extend(hits)
                 else:
-                    all_results.extend(f"{p.original}:{r}" for r in hits)
+                    all_results.extend(f"{p.display}:{r}" for r in hits)
             stderr = format_optional_records(multi_warnings)
             if not all_results:
                 return b"", IOResult(exit_code=1, stderr=stderr)
@@ -262,15 +255,15 @@ async def grep(
                                                              stderr=stderr)
             return format_records(all_results), IOResult(stderr=stderr)
 
-        first_stat = await st(paths[0].original)
+        first_stat = await st(paths[0].virtual)
         if first_stat.type == FileType.DIRECTORY:
-            stderr = f"grep: {paths[0].original}: Is a directory\n".encode()
+            stderr = f"grep: {paths[0].display}: Is a directory\n".encode()
             return b"", IOResult(exit_code=1, stderr=stderr)
 
         if read_stream is not None:
             source: AsyncIterator[bytes] = read_stream(accessor, paths[0])
         else:
-            data = await rb(paths[0].original)
+            data = await rb(paths[0].virtual)
             source = _wrap_bytes(data)
         stream = grep_stream(
             source,

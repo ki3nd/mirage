@@ -13,18 +13,22 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.ram import RAMAccessor
+from mirage.cache.context import invalidate_after_unlink
 from mirage.types import PathSpec
 from mirage.utils.path import norm
 
 
 async def unlink(accessor: RAMAccessor, path: PathSpec) -> None:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     store = accessor.store
     p = norm(path)
     if p not in store.files:
         raise FileNotFoundError(p)
     del store.files[p]
     store.modified.pop(p, None)
+    await invalidate_after_unlink(path)

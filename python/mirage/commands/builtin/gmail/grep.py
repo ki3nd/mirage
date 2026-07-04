@@ -32,6 +32,7 @@ from mirage.core.gmail.stat import stat as _stat
 from mirage.io.types import ByteSource, IOResult
 from mirage.provision.types import ProvisionResult
 from mirage.types import PathSpec
+from mirage.utils.key_prefix import mount_prefix_of
 
 
 async def grep_provision(
@@ -65,10 +66,11 @@ async def grep(
     pattern = pattern_arg(texts, fl)
     max_count = fl.int("m")
 
-    if paths and pattern is not None:
+    if paths and pattern is not None and "\n" not in pattern:
         scope = detect_scope(paths[0])
         if scope.use_native:
-            file_prefix = paths[0].prefix or ""
+            file_prefix = mount_prefix_of(paths[0].virtual,
+                                          paths[0].resource_path) or ""
             rows = await search_messages(
                 accessor.token_manager,
                 pattern,

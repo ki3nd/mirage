@@ -16,6 +16,7 @@ from mirage.accessor.langfuse import LangfuseAccessor
 from mirage.cache.index import IndexCacheStore
 from mirage.types import FileStat, FileType, PathSpec
 from mirage.utils.errors import enoent
+from mirage.utils.key_prefix import mount_prefix_of
 
 TOP_LEVEL_DIRS = {"traces", "sessions", "prompts", "datasets"}
 
@@ -34,17 +35,12 @@ async def stat(
         prefix (str): mount prefix for virtual index keys.
     """
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
-    virtual = path.original
-    if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.original
-
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
-    key = path.strip("/")
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
+    mount_prefix_of(path.virtual, path.resource_path)
+    key = path.resource_path
 
     if not key:
         return FileStat(name="/", type=FileType.DIRECTORY)

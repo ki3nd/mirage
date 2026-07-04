@@ -35,7 +35,7 @@ async def ls_provision(
     **_extra: object,
 ) -> ProvisionResult:
     return await metadata_provision("ls " + " ".join(
-        p.original if isinstance(p, PathSpec) else p for p in paths))
+        p.display if isinstance(p, PathSpec) else p for p in paths))
 
 
 @command("ls", resource="mem0", spec=SPECS["ls"], provision=ls_provision)
@@ -60,13 +60,14 @@ async def ls(
     **_extra: object,
 ) -> tuple[ByteSource | None, IOResult]:
     if not paths:
-        cwd_str = cwd.original if isinstance(cwd, PathSpec) else cwd
-        cwd_prefix = cwd.prefix if isinstance(cwd, PathSpec) else ""
+        cwd_str = cwd.virtual if isinstance(cwd, PathSpec) else cwd
+        cwd_resource = (cwd.resource_path
+                        if isinstance(cwd, PathSpec) else cwd.strip("/"))
         paths = [
-            PathSpec(original=cwd_str,
+            PathSpec(virtual=cwd_str,
                      directory=cwd_str,
                      resolved=False,
-                     prefix=cwd_prefix)
+                     resource_path=cwd_resource)
         ]
     paths = await resolve_glob(accessor, paths, index)
     sort_by = LsSortBy.TIME if t else LsSortBy.SIZE if S else LsSortBy.NAME

@@ -115,12 +115,29 @@ async function main(): Promise<void> {
   await runLabeled(ws, 'head -c 8 /dev/zero | xxd', 'head -c 8 /dev/zero | xxd')
 
   console.log('')
-  console.log('=== OBSERVER (.sessions) ===')
-  console.log('  every op + execute() is logged to /.sessions/<utc-date>/<sessionId>.jsonl')
+  console.log('=== HISTORY (/.bash_history) ===')
+  console.log('  every executed command is recorded in GNU bash histfile format')
   console.log('')
-  const day = new Date().toISOString().slice(0, 10)
-  const log = await ws.execute(`tail -n 5 /.sessions/${day}/*.jsonl`)
+  const log = await ws.execute('tail -n 5 /.bash_history')
   process.stdout.write(log.stdoutText + '\n')
+
+  console.log('')
+  console.log('=== PROVISION (dry-run cost estimates) ===')
+  console.log('')
+  // Read families estimate bytes from stat; pipes/&&/; sum, || takes a
+  // min-max envelope, and writes report UNKNOWN.
+  for (const cmd of [
+    'cat /data/hello.txt',
+    'sort /data/hello.txt | head -n 1',
+    'head /data/hello.txt || cat /data/hello.txt',
+    'tee /data/out.txt',
+  ]) {
+    const plan = await ws.execute(cmd, { provision: true })
+    console.log(
+      `  ${cmd}: net=${plan.networkRead} ops=${String(plan.readOps)} ` +
+        `precision=${plan.precision}`,
+    )
+  }
 
   console.log('')
   console.log('=== PERSISTENCE ===')

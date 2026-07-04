@@ -17,6 +17,7 @@ from pathlib import Path
 import aiofiles
 
 from mirage.accessor.disk import DiskAccessor
+from mirage.cache.context import invalidate_after_write
 from mirage.types import PathSpec
 
 
@@ -30,9 +31,11 @@ def _resolve(root: Path, path: str) -> Path:
 async def truncate(accessor: DiskAccessor, path: PathSpec,
                    length: int) -> None:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     p = _resolve(accessor.root, path)
     try:
         async with aiofiles.open(p, "rb") as f:
@@ -42,3 +45,4 @@ async def truncate(accessor: DiskAccessor, path: PathSpec,
     result = data[:length].ljust(length, b"\0")
     async with aiofiles.open(p, "wb") as f:
         await f.write(result)
+    await invalidate_after_write(path)

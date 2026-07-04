@@ -19,7 +19,7 @@ import {
   PostgresResource,
   Workspace,
 } from "@struktoai/mirage-node";
-import { runNotFound } from "./cases.ts";
+import { runNotFound, runProvisionProbe } from "./cases.ts";
 
 const DSN =
   process.env.POSTGRES_DSN ?? "postgres://mirage:mirage@localhost:55432/mirage_integ";
@@ -69,6 +69,12 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
   ["wc_l_view", `wc -l ${MOUNT}/public/views/recent_books/rows.jsonl`],
   ["safeguard_cat_truncates", `cat ${MOUNT}/public/tables/books/rows.jsonl`],
   ["safeguard_cat_pipe_uncapped", `cat ${MOUNT}/public/tables/books/rows.jsonl | wc -l`],
+  // symlink into the mount (namespace state; works on a read-only backend)
+  ["sym_ln", `ln -s ${MOUNT}/public/tables/books/schema.json ${MOUNT}/meta_link`],
+  ["sym_readlink", `readlink ${MOUNT}/meta_link`],
+  ["sym_cat", `cat ${MOUNT}/meta_link`],
+  ["sym_ls", `ls -F ${MOUNT} | grep meta_link`],
+  ["sym_rm", `rm ${MOUNT}/meta_link && ls ${MOUNT}`],
 ];
 
 async function seed(client: pg.Client): Promise<void> {
@@ -111,9 +117,6 @@ async function run(ws: Workspace, name: string, cmd: string): Promise<void> {
 function setCatSafeguard(ws: Workspace, maxLines: number): void {
   const sg = new CommandSafeguard({ maxLines });
   for (const m of ws.registry.allMounts()) m.commandSafeguards.set("cat", sg);
-  if (ws.registry.defaultMount !== null) {
-    ws.registry.defaultMount.commandSafeguards.set("cat", sg);
-  }
 }
 
 async function main(): Promise<void> {
@@ -132,6 +135,7 @@ async function main(): Promise<void> {
       await run(ws, name, cmd);
     }
     await runNotFound(ws, MOUNT);
+    await runProvisionProbe(ws, `${MOUNT}/public/tables/books/rows.jsonl`);
   } finally {
     await ws.close();
     await resource.close();

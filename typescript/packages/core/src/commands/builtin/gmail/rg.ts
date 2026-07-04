@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountPrefixOf } from '../../../utils/key_prefix.ts'
 import type { GmailAccessor } from '../../../accessor/gmail.ts'
 import type { IndexCacheStore } from '../../../cache/index/index.ts'
 import { resolveGlob } from '../../../core/gmail/glob.ts'
@@ -52,12 +53,15 @@ async function rgCommand(
   }
   const maxCount = typeof opts.flags.m === 'string' ? Number.parseInt(opts.flags.m, 10) : null
 
-  if (paths.length > 0) {
+  if (paths.length > 0 && !pattern.includes('\n')) {
     const first = paths[0]
     if (first !== undefined) {
       const scope = detectScope(first)
       if (scope.useNative) {
-        const filePrefix = first.prefix !== '' ? first.prefix : ''
+        const filePrefix =
+          mountPrefixOf(first.virtual, first.resourcePath) !== ''
+            ? mountPrefixOf(first.virtual, first.resourcePath)
+            : ''
         const rows = await searchMessages(
           accessor.tokenManager,
           pattern,

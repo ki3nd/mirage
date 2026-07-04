@@ -12,12 +12,13 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { GDocsAccessor } from '../../accessor/gdocs.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { PathSpec } from '../../types.ts'
 import { DOCS_API_BASE, type TokenManager, googleGet } from '../google/_client.ts'
 import { readdir } from './readdir.ts'
-import { rstripSlash, stripSlash } from '../../utils/slash.ts'
+import { rstripSlash } from '../../utils/slash.ts'
 import { enoent } from '../../utils/errors.ts'
 
 const ENC = new TextEncoder()
@@ -39,17 +40,15 @@ export async function read(
   path: PathSpec,
   index?: IndexCacheStore,
 ): Promise<Uint8Array> {
-  const prefix = path.prefix
-  let p = path.original
-  if (prefix !== '' && p.startsWith(prefix)) p = p.slice(prefix.length) || '/'
-  const key = stripSlash(p)
-  if (index === undefined) throw enoent(path.original)
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  const key = path.resourcePath
+  if (index === undefined) throw enoent(path.virtual)
   const virtualKey = prefix !== '' ? `${prefix}/${key}` : `/${key}`
   let result = await index.get(virtualKey)
   if (result.entry === undefined || result.entry === null) {
     const parentKey = rstripSlash(virtualKey).replace(/\/[^/]+$/, '') || '/'
     if (parentKey !== virtualKey) {
-      const parentPath = PathSpec.fromStrPath(parentKey, prefix)
+      const parentPath = PathSpec.fromStrPath(parentKey, mountKey(parentKey, prefix))
       try {
         await readdir(accessor, parentPath, index)
         result = await index.get(virtualKey)
@@ -57,9 +56,9 @@ export async function read(
         // parent refresh failed; fall through to ENOENT
       }
     }
-    if (result.entry === undefined || result.entry === null) throw enoent(path.original)
+    if (result.entry === undefined || result.entry === null) throw enoent(path.virtual)
   }
-  if (result.entry.resourceType === 'gdocs/directory') throw eisdir(path.original)
+  if (result.entry.resourceType === 'gdocs/directory') throw eisdir(path.virtual)
   return readDoc(accessor.tokenManager, result.entry.id)
 }
 

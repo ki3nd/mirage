@@ -12,12 +12,13 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { GDriveAccessor } from '../../accessor/gdrive.ts'
 import { IndexEntry } from '../../cache/index/config.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { PathSpec } from '../../types.ts'
 import { MIME_TO_EXT, listFiles, listSharedDrives } from '../google/drive.ts'
-import { rstripSlash, stripSlash } from '../../utils/slash.ts'
+import { rstripSlash } from '../../utils/slash.ts'
 
 export const DIRECTORY_RESOURCE_TYPES: ReadonlySet<string> = new Set([
   'gdrive/folder',
@@ -59,11 +60,8 @@ export async function readdir(
   path: PathSpec,
   index?: IndexCacheStore,
 ): Promise<string[]> {
-  const prefix = path.prefix
-  const raw = path.pattern !== null ? path.directory : path.original
-  let p = raw
-  if (prefix !== '' && p.startsWith(prefix)) p = p.slice(prefix.length) || '/'
-  const key = stripSlash(p)
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  const key = (path.pattern !== null ? path.dir : path).resourcePath
   const virtualKey = key !== '' ? `${prefix}/${key}` : prefix !== '' ? prefix : '/'
 
   if (index !== undefined) {
@@ -80,20 +78,20 @@ export async function readdir(
     folderId = 'root'
   } else {
     if (index === undefined) {
-      const e = new Error(`ENOENT: ${path.original}`) as Error & { code: string }
+      const e = new Error(`ENOENT: ${path.virtual}`) as Error & { code: string }
       e.code = 'ENOENT'
       throw e
     }
     let result = await index.get(virtualKey)
     if (result.entry === undefined || result.entry === null) {
-      const parentOriginal = rstripSlash(path.original).replace(/\/[^/]+$/, '') || '/'
-      if (parentOriginal !== path.original) {
-        const parentPath = PathSpec.fromStrPath(parentOriginal, prefix)
+      const parentOriginal = rstripSlash(path.virtual).replace(/\/[^/]+$/, '') || '/'
+      if (parentOriginal !== path.virtual) {
+        const parentPath = PathSpec.fromStrPath(parentOriginal, mountKey(parentOriginal, prefix))
         await readdir(accessor, parentPath, index)
         result = await index.get(virtualKey)
       }
       if (result.entry === undefined || result.entry === null) {
-        const e = new Error(`ENOENT: ${path.original}`) as Error & { code: string }
+        const e = new Error(`ENOENT: ${path.virtual}`) as Error & { code: string }
         e.code = 'ENOENT'
         throw e
       }

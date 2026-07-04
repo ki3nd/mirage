@@ -13,7 +13,12 @@
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 import type { IndexCacheStore, PathSpec } from '@struktoai/mirage-core'
-import { IndexEntry, PathSpec as PathSpecCtor, stripSlash } from '@struktoai/mirage-core'
+import {
+  IndexEntry,
+  PathSpec as PathSpecCtor,
+  mountKey,
+  mountPrefixOf,
+} from '@struktoai/mirage-core'
 import type { EmailAccessor } from '../../accessor/email.ts'
 import { fetchHeaders, listMessageUids } from './_client.ts'
 import { listFolders } from './folders.ts'
@@ -56,11 +61,8 @@ export async function readdir(
   path: PathSpec,
   index?: IndexCacheStore,
 ): Promise<string[]> {
-  const prefix = path.prefix
-  const raw = path.pattern !== null ? path.directory : path.original
-  let p = raw
-  if (prefix !== '' && p.startsWith(prefix)) p = p.slice(prefix.length) || '/'
-  const key = stripSlash(p)
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  const key = (path.pattern !== null ? path.dir : path).resourcePath
   const virtualKey = key !== '' ? `${prefix}/${key}` : prefix !== '' ? prefix : '/'
   const parts = key === '' ? [] : key.split('/')
   const depth = parts.length
@@ -91,7 +93,7 @@ export async function readdir(
       const cached = await index.listDir(virtualKey)
       if (cached.entries !== undefined && cached.entries !== null) return cached.entries
     }
-    if (index === undefined) throw enoent(path.original)
+    if (index === undefined) throw enoent(path.virtual)
     const maxMessages = accessor.config.maxMessages
     const uids = await listMessageUids(accessor, folderName, 'ALL', maxMessages)
     const headersList = await fetchHeaders(accessor, folderName, uids)
@@ -160,16 +162,20 @@ export async function readdir(
   }
 
   if (depth === 2 || depth === 3) {
-    if (index === undefined) throw enoent(path.original)
+    if (index === undefined) throw enoent(path.virtual)
     let cached = await index.listDir(virtualKey)
     if (cached.entries !== undefined && cached.entries !== null) return cached.entries
     const folderPath = prefix !== '' ? `${prefix}/${parts[0] ?? ''}` : `/${parts[0] ?? ''}`
-    const folderSpec = new PathSpecCtor({ original: folderPath, directory: folderPath, prefix })
+    const folderSpec = new PathSpecCtor({
+      virtual: folderPath,
+      directory: folderPath,
+      resourcePath: mountKey(folderPath, prefix),
+    })
     await readdir(accessor, folderSpec, index)
     cached = await index.listDir(virtualKey)
     if (cached.entries !== undefined && cached.entries !== null) return cached.entries
-    throw enoent(path.original)
+    throw enoent(path.virtual)
   }
 
-  throw enoent(path.original)
+  throw enoent(path.virtual)
 }

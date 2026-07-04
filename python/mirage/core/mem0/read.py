@@ -33,12 +33,12 @@ async def _resolve_memory(
     index: IndexCacheStore | None,
 ) -> dict:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec.from_str_path(path)
     scope = detect(path)
     if scope.level != "memory":
-        raise enoent(path.original)
+        raise enoent(path)
     if index is not None:
-        lookup = await index.get(path.original)
+        lookup = await index.get(path.virtual)
         if lookup.entry is not None and lookup.entry.extra.get("memory"):
             return lookup.entry.extra["memory"]
     return await get_memory(accessor.client, scope.memory_id)

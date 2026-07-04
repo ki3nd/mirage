@@ -44,10 +44,10 @@ beforeEach(() => {
 })
 
 describe('SSHResource — identity', () => {
-  it('exposes kind = ssh and isRemote = true', () => {
+  it('exposes kind = ssh and cachesReads = true', () => {
     const res = makeResource(state)
     expect(res.kind).toBe(ResourceName.SSH)
-    expect(res.isRemote).toBe(true)
+    expect(res.cachesReads).toBe(true)
   })
 
   it('prompt equals SSH_PROMPT', () => {
@@ -58,7 +58,7 @@ describe('SSHResource — identity', () => {
   it('commands() length matches SSH_COMMANDS', () => {
     const res = makeResource(state)
     expect(res.commands().length).toBe(SSH_COMMANDS.length)
-    expect(res.commands().length).toBe(63)
+    expect(res.commands().length).toBe(117)
   })
 
   it('ops() length matches SSH_OPS', () => {

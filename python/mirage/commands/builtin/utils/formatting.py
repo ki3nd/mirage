@@ -19,13 +19,18 @@ from mirage.types import FileStat, FileType
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
            "Oct", "Nov", "Dec")
 
+EPOCH_LS_TIME = "Jan  1 00:00"
+
 
 def _human_size(n: int) -> str:
-    for unit in ("B", "K", "M", "G", "T"):
-        if n < 1024:
-            return f"{n:.1f}{unit}" if unit != "B" else f"{n}{unit}"
-        n //= 1024
-    return f"{n}P"
+    units = ("B", "K", "M", "G", "T")
+    value = float(n)
+    i = 0
+    while value >= 1024 and i < len(units) - 1:
+        value /= 1024
+        i += 1
+    text = str(round(value)) if i == 0 else f"{value:.1f}"
+    return f"{text}{units[i]}"
 
 
 def _ls_mode_string(s: FileStat) -> str:
@@ -37,12 +42,12 @@ def _ls_mode_string(s: FileStat) -> str:
 
 def _ls_time_string(modified: str | None) -> str:
     if not modified:
-        return "Jan  1 00:00"
+        return EPOCH_LS_TIME
     try:
         text = modified.replace("Z", "+00:00")
         dt = datetime.fromisoformat(text).astimezone(timezone.utc)
     except (ValueError, TypeError):
-        return "Jan  1 00:00"
+        return EPOCH_LS_TIME
     month = _MONTHS[dt.month - 1]
     day = f"{dt.day:>2}"
     return f"{month} {day} {dt.hour:02d}:{dt.minute:02d}"
@@ -63,6 +68,10 @@ def format_ls_long(
         (len(x) for x in sizes), default=1)
     out: list[str] = []
     for s, raw_size in zip(stats, sizes):
+        if s.size is None and s.modified is None:
+            mode = _ls_mode_string(s)
+            out.append(f"{mode}\t-\t-\t{s.name}")
+            continue
         mode = _ls_mode_string(s)
         size = raw_size.rjust(width)
         time = _ls_time_string(s.modified)

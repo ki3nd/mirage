@@ -15,7 +15,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mirage.types import Aggr, CommandSafeguard, FileStat, OnExceed
+from mirage.types import Aggr, CommandSafeguard, FileStat, OnExceed, PathSpec
 
 
 def test_filestat_defaults():
@@ -85,3 +85,52 @@ def test_every_field_declares_an_aggr_rule():
         assert any(
             isinstance(m, Aggr)
             for m in field.metadata), (f"field {name!r} has no Aggr rule")
+
+
+def test_pathspec_requires_resource_path():
+    with pytest.raises(TypeError):
+        PathSpec(virtual="/x.txt", directory="/")
+
+
+def test_pathspec_display_prefers_raw_path():
+    p = PathSpec(virtual="/data/a.txt",
+                 directory="/data/",
+                 resource_path="a.txt",
+                 raw_path="../a.txt")
+    assert p.display == "../a.txt"
+
+
+def test_pathspec_display_falls_back_to_virtual():
+    p = PathSpec(virtual="/data/a.txt",
+                 directory="/data/",
+                 resource_path="a.txt")
+    assert p.display == "/data/a.txt"
+
+
+def test_pathspec_dir_trims_resource_path():
+    p = PathSpec(virtual="/data/sub/x.txt",
+                 directory="/data/sub/",
+                 resource_path="sub/x.txt",
+                 pattern="*.txt")
+    d = p.dir
+    assert d.virtual == "/data/sub/"
+    assert d.resource_path == "sub"
+    assert d.pattern == "*.txt"
+
+
+def test_pathspec_dir_at_mount_root():
+    p = PathSpec(virtual="/data/x.txt",
+                 directory="/data/",
+                 resource_path="x.txt")
+    assert p.dir.resource_path == ""
+
+
+def test_pathspec_from_str_path_defaults_to_root_mounted():
+    p = PathSpec.from_str_path("/a/b/c.txt")
+    assert p.resource_path == "a/b/c.txt"
+    assert p.directory == "/a/b/"
+
+
+def test_pathspec_from_str_path_explicit_resource_path():
+    p = PathSpec.from_str_path("/mnt/s3/data/x.json", "data/x.json")
+    assert p.resource_path == "data/x.json"

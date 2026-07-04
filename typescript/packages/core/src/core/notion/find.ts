@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import type { FindOptions } from '../../resource/base.ts'
 import { type FileStat, FileType, PathSpec } from '../../types.ts'
@@ -19,7 +20,7 @@ import type { NotionStatAccessor } from './stat.ts'
 import { readdir } from './readdir.ts'
 import { stat } from './stat.ts'
 import { stripSlash } from '../../utils/slash.ts'
-import { buildTree, keep } from '../../commands/builtin/findEval.ts'
+import { buildTree, keep, startBasename } from '../../commands/builtin/findEval.ts'
 
 async function collect(
   accessor: NotionStatAccessor,
@@ -28,14 +29,14 @@ async function collect(
   out: [string, FileStat][],
 ): Promise<void> {
   const fileStat = await stat(accessor, path, index)
-  out.push([path.original, fileStat])
+  out.push([path.virtual, fileStat])
   if (fileStat.type !== FileType.DIRECTORY) return
   for (const entry of await readdir(accessor, path, index)) {
     const child = new PathSpec({
-      original: entry,
+      virtual: entry,
       directory: entry,
       resolved: false,
-      prefix: path.prefix,
+      resourcePath: mountKey(entry, mountPrefixOf(path.virtual, path.resourcePath)),
     })
     await collect(accessor, child, index, out)
   }
@@ -47,7 +48,8 @@ export async function find(
   options: FindOptions = {},
   index?: IndexCacheStore,
 ): Promise<string[]> {
-  const stripped = stripSlash(path.stripPrefix)
+  const startName = startBasename(path.virtual)
+  const stripped = stripSlash(path.mountPath)
   const base = stripped !== '' ? `/${stripped}` : '/'
   const baseDepth = base === '/' ? 0 : (base.match(/\//g) ?? []).length
   const collected: [string, FileStat][] = []
@@ -65,13 +67,16 @@ export async function find(
     })
   for (const [entryPath, fileStat] of collected) {
     let rel = entryPath
-    if (path.prefix !== '' && rel.startsWith(path.prefix)) {
-      rel = rel.slice(path.prefix.length) || '/'
+    if (
+      mountPrefixOf(path.virtual, path.resourcePath) !== '' &&
+      rel.startsWith(mountPrefixOf(path.virtual, path.resourcePath))
+    ) {
+      rel = rel.slice(mountPrefixOf(path.virtual, path.resourcePath).length) || '/'
     }
     const relStripped = stripSlash(rel)
     rel = relStripped !== '' ? `/${relStripped}` : '/'
     const isDir = fileStat.type === FileType.DIRECTORY
-    const entryName = rel.split('/').pop() ?? rel
+    const entryName = rel === base ? startName : (rel.split('/').pop() ?? rel)
     const depth = rel === base ? 0 : (rel.match(/\//g) ?? []).length - baseDepth
     if (options.maxDepth !== undefined && options.maxDepth !== null && depth > options.maxDepth) {
       continue

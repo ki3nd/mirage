@@ -14,6 +14,8 @@
 
 from mirage.accessor.s3 import S3Accessor
 from mirage.cache.index import IndexCacheStore
+from mirage.commands.builtin.generic_bind.provision import \
+    write_metadata_provision
 from mirage.commands.builtin.utils.output import format_optional_records
 from mirage.commands.registry import command
 from mirage.commands.spec import SPECS
@@ -41,7 +43,7 @@ async def _rm(
         if force:
             return
         raise
-    label = path.original if isinstance(path, PathSpec) else path
+    label = path.virtual if isinstance(path, PathSpec) else path
     if s.type == FileType.DIRECTORY:
         if recursive:
             await rm_r(accessor, path)
@@ -57,7 +59,11 @@ async def _rm(
         await unlink(accessor, path)
 
 
-@command("rm", resource="s3", spec=SPECS["rm"], write=True)
+@command("rm",
+         resource="s3",
+         spec=SPECS["rm"],
+         write=True,
+         provision=write_metadata_provision)
 async def rm(
     accessor: S3Accessor,
     paths: list[PathSpec],
@@ -83,8 +89,8 @@ async def rm(
                   force=f,
                   remove_dir=d,
                   index=index)
-        removed[p.strip_prefix] = b""
+        removed[p.mount_path] = b""
         if v:
-            verbose_parts.append(f"removed '{p.original}'")
+            verbose_parts.append(f"removed '{p.virtual}'")
     output = format_optional_records(verbose_parts) if v else None
     return output, IOResult(writes=removed)

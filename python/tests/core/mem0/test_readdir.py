@@ -48,7 +48,7 @@ def _accessor():
 async def test_readdir_lists_memory_files():
     acc = _accessor()
     index = RAMIndexCacheStore()
-    p = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     names = await readdir(acc, p, index)
     assert sorted(names) == ["/mem/aaa.json", "/mem/bbb.json"]
 
@@ -57,7 +57,7 @@ async def test_readdir_lists_memory_files():
 async def test_readdir_uses_cache_second_call():
     acc = _accessor()
     index = RAMIndexCacheStore()
-    p = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     await readdir(acc, p, index)
     await readdir(acc, p, index)
     assert acc._client.get_all_calls == 1
@@ -67,7 +67,7 @@ async def test_readdir_uses_cache_second_call():
 async def test_readdir_primes_remote_time():
     acc = _accessor()
     index = RAMIndexCacheStore()
-    p = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     await readdir(acc, p, index)
     lookup = await index.get("/mem/aaa.json")
     assert lookup.entry.remote_time == "2026-06-15T00:34:22-07:00"

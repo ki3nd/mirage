@@ -13,19 +13,24 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.s3 import S3Accessor
+from mirage.cache.context import invalidate_after_write
 from mirage.core.s3._client import _client_kwargs, _key, async_session
 from mirage.types import PathSpec
 
 
 async def copy(accessor: S3Accessor, src: PathSpec, dst: PathSpec) -> None:
     if isinstance(src, str):
-        src = PathSpec(original=src, directory=src)
+        src = PathSpec(virtual=src,
+                       directory=src,
+                       resource_path=src.strip("/"))
     if isinstance(src, PathSpec):
-        src = src.strip_prefix
+        src = src.mount_path
     if isinstance(dst, str):
-        dst = PathSpec(original=dst, directory=dst)
+        dst = PathSpec(virtual=dst,
+                       directory=dst,
+                       resource_path=dst.strip("/"))
     if isinstance(dst, PathSpec):
-        dst = dst.strip_prefix
+        dst = dst.mount_path
     config = accessor.config
     session = async_session(config)
     async with session.client(**_client_kwargs(config)) as client:
@@ -37,3 +42,4 @@ async def copy(accessor: S3Accessor, src: PathSpec, dst: PathSpec) -> None:
             },
             Key=_key(dst, config),
         )
+    await invalidate_after_write(dst)

@@ -12,9 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import type { Accessor } from '../../../accessor/base.ts'
 import { IOResult, type ByteSource } from '../../../io/types.ts'
-import { ProvisionResult } from '../../../provision/types.ts'
 import { FileType, type FileStat, type PathSpec } from '../../../types.ts'
 import type { CommandFnResult, CommandOpts } from '../../config.ts'
 import { formatRecords } from '../utils/output.ts'
@@ -39,18 +37,6 @@ function formatStat(fmt: string, s: FileStat, name: string): string {
   })
 }
 
-export function statProvisionGeneric(
-  _accessor: Accessor,
-  paths: PathSpec[],
-  _texts: string[],
-  _opts: CommandOpts,
-): ProvisionResult {
-  const [first] = paths
-  return new ProvisionResult({
-    command: first !== undefined ? `stat ${first.original}` : 'stat',
-  })
-}
-
 export async function statGeneric(
   paths: PathSpec[],
   opts: CommandOpts,
@@ -69,7 +55,7 @@ export async function statGeneric(
   for (const p of paths) {
     const s = await stat(p)
     if (fmt !== null) {
-      lines.push(formatStat(fmt, s, p.original))
+      lines.push(formatStat(fmt, s, p.display))
     } else {
       const sizeStr = s.size === null ? 'None' : String(s.size)
       const modStr = s.modified ?? 'None'

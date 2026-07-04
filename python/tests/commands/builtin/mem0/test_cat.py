@@ -34,9 +34,9 @@ def _res():
 @pytest.mark.asyncio
 async def test_cat_returns_full_json():
     res = _res()
-    p = PathSpec(original="/mem/aaa.json",
+    p = PathSpec(virtual="/mem/aaa.json",
                  directory="/mem",
-                 prefix="/mem",
+                 resource_path="aaa.json",
                  resolved=True)
     out, _io = await cat.__wrapped__(res.accessor, [p], index=res._index)
     data = json.loads(out)

@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { PathSpec } from '../../types.ts'
 import type { TreeEntry } from './tree_entry.ts'
@@ -28,17 +29,25 @@ const TREE: Record<string, TreeEntry> = {
 
 describe('scopeRelativeKey', () => {
   it('strips the mount prefix', () => {
-    const p = new PathSpec({ original: '/github/src', directory: '/github', prefix: '/github' })
+    const p = new PathSpec({
+      virtual: '/github/src',
+      directory: '/github',
+      resourcePath: mountKey('/github/src', '/github'),
+    })
     expect(scopeRelativeKey(p)).toBe('/src')
   })
 
   it('returns / for the mount root', () => {
-    const p = new PathSpec({ original: '/github', directory: '/', prefix: '/github' })
+    const p = new PathSpec({
+      virtual: '/github',
+      directory: '/',
+      resourcePath: mountKey('/github', '/github'),
+    })
     expect(scopeRelativeKey(p)).toBe('/')
   })
 
   it('passes through unprefixed paths', () => {
-    const p = new PathSpec({ original: '/src', directory: '/' })
+    const p = new PathSpec({ resourcePath: 'src', virtual: '/src', directory: '/' })
     expect(scopeRelativeKey(p)).toBe('/src')
   })
 })
@@ -71,10 +80,9 @@ describe('countScopeFiles', () => {
 })
 
 describe('shouldUseSearch', () => {
-  it('requires literal pattern, recursive, and default branch', () => {
-    expect(shouldUseSearch(false, true, true)).toBe(true)
-    expect(shouldUseSearch(true, true, true)).toBe(false)
-    expect(shouldUseSearch(false, false, true)).toBe(false)
-    expect(shouldUseSearch(false, true, false)).toBe(false)
+  it('requires recursive and default branch (literal check moved to caller)', () => {
+    expect(shouldUseSearch(true, true)).toBe(true)
+    expect(shouldUseSearch(false, true)).toBe(false)
+    expect(shouldUseSearch(true, false)).toBe(false)
   })
 })

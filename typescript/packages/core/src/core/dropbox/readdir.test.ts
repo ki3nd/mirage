@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../utils/key_prefix.ts'
 import { describe, expect, it, vi } from 'vitest'
 import type * as ApiModule from './api.ts'
 
@@ -54,7 +55,11 @@ describe('dropbox readdir', () => {
 
     const accessor = makeAccessor()
     const index = new RAMIndexCacheStore()
-    const out = await readdir(accessor, new PathSpec({ original: '/', directory: '/' }), index)
+    const out = await readdir(
+      accessor,
+      new PathSpec({ resourcePath: '', virtual: '/', directory: '/' }),
+      index,
+    )
     expect(out).toEqual(['/docs/', '/notes.txt'])
   })
 
@@ -81,10 +86,10 @@ describe('dropbox readdir', () => {
 
     const accessor = makeAccessor()
     const index = new RAMIndexCacheStore()
-    await readdir(accessor, new PathSpec({ original: '/', directory: '/' }), index)
+    await readdir(accessor, new PathSpec({ resourcePath: '', virtual: '/', directory: '/' }), index)
     const out = await readdir(
       accessor,
-      new PathSpec({ original: '/docs', directory: '/docs' }),
+      new PathSpec({ resourcePath: 'docs', virtual: '/docs', directory: '/docs' }),
       index,
     )
     expect(out).toContain('/docs/note.md')
@@ -100,9 +105,9 @@ describe('dropbox readdir', () => {
     const out = await readdir(
       accessor,
       new PathSpec({
-        original: '/dropbox',
+        virtual: '/dropbox',
         directory: '/dropbox',
-        prefix: '/dropbox',
+        resourcePath: mountKey('/dropbox', '/dropbox'),
       }),
       index,
     )

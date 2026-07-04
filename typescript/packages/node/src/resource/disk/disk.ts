@@ -16,13 +16,15 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   BaseResource,
+  PathSpec,
+  ResourceName,
+  mountKey,
+  mountPrefixOf,
   type FileStat,
   type FindOptions,
-  PathSpec,
   type RegisteredCommand,
   type RegisteredOp,
   type Resource,
-  ResourceName,
 } from '@struktoai/mirage-core'
 import { DISK_COMMANDS } from '../../commands/builtin/disk/index.ts'
 import { appendBytes as appendCore } from '../../core/disk/append.ts'
@@ -70,7 +72,7 @@ async function walkFiles(root: string, current: string, out: string[]): Promise<
 
 export class DiskResource extends BaseResource implements Resource {
   readonly kind = ResourceName.DISK
-  readonly isRemote: boolean = false
+  readonly cachesReads: boolean = false
   readonly indexTtl: number = 60
   readonly prompt = DISK_PROMPT
   readonly root: string
@@ -194,14 +196,14 @@ export class DiskResource extends BaseResource implements Resource {
   glob(paths: readonly PathSpec[], prefix = ''): Promise<PathSpec[]> {
     const effective = prefix
       ? paths.map((p) =>
-          p.prefix
+          mountPrefixOf(p.virtual, p.resourcePath)
             ? p
             : new PathSpec({
-                original: p.original,
+                virtual: p.virtual,
                 directory: p.directory,
                 ...(p.pattern !== null ? { pattern: p.pattern } : {}),
                 resolved: p.resolved,
-                prefix,
+                resourcePath: mountKey(p.virtual, prefix),
               }),
         )
       : paths

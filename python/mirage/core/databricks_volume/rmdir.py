@@ -15,6 +15,7 @@
 import asyncio
 
 from mirage.accessor.databricks_volume import DatabricksVolumeAccessor
+from mirage.cache.context import invalidate_after_unlink
 from mirage.cache.index import IndexCacheStore
 from mirage.core.databricks_volume._helpers import ensure_path_spec
 from mirage.core.databricks_volume.errors import is_not_found
@@ -56,10 +57,11 @@ async def rmdir(
             raise enoent(path) from exc
         raise
     if entries:
-        raise OSError(f"directory not empty: {path.original}")
+        raise OSError(f"directory not empty: {path.virtual}")
     try:
         await asyncio.to_thread(_delete_directory_sync, accessor, remote_path)
     except Exception as exc:
         if is_not_found(exc):
             raise enoent(path) from exc
         raise
+    await invalidate_after_unlink(path)

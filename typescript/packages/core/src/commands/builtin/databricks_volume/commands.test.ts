@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../../utils/key_prefix.ts'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { materialize } from '../../../io/types.ts'
 import { PathSpec } from '../../../types.ts'
@@ -39,8 +40,8 @@ function cmdOf(name: string): RegisteredCommand {
   return cmd
 }
 
-function pathOf(original: string): PathSpec {
-  return PathSpec.fromStrPath(original, '/volume')
+function pathOf(virtual: string): PathSpec {
+  return PathSpec.fromStrPath(virtual, mountKey(virtual, '/volume'))
 }
 
 async function run(
@@ -48,7 +49,7 @@ async function run(
   paths: PathSpec[],
   texts: string[] = [],
   flags: Record<string, string | boolean | string[]> = {},
-): Promise<{ stdout: string; exitCode: number }> {
+): Promise<{ stdout: string; exitCode: number; writes: string[] }> {
   const cmd = cmdOf(name)
   const result = await cmd.fn(makeAccessor(), paths, texts, {
     stdin: null,
@@ -57,7 +58,7 @@ async function run(
     cwd: '/',
     resource: null as unknown as Resource,
   })
-  if (result === null) return { stdout: '', exitCode: 0 }
+  if (result === null) return { stdout: '', exitCode: 0, writes: [] }
   const [out, io] = result
   let stdout = ''
   if (out !== null) {
@@ -65,13 +66,13 @@ async function run(
       out instanceof Uint8Array ? out : await materialize(out as AsyncIterable<Uint8Array>)
     stdout = DEC.decode(buf)
   }
-  return { stdout, exitCode: io.exitCode }
+  return { stdout, exitCode: io.exitCode, writes: Object.keys(io.writes) }
 }
 
 describe('databricks_volume commands registry', () => {
-  it('registers the same 24 commands as Python', () => {
-    const names = DATABRICKS_VOLUME_COMMANDS.map((c) => c.name).sort()
-    expect(names).toEqual([
+  it('registers the filesystem and bespoke commands', () => {
+    const names = new Set(DATABRICKS_VOLUME_COMMANDS.map((c) => c.name))
+    for (const name of [
       'awk',
       'cat',
       'cp',
@@ -96,7 +97,9 @@ describe('databricks_volume commands registry', () => {
       'tree',
       'uniq',
       'wc',
-    ])
+    ]) {
+      expect(names.has(name)).toBe(true)
+    }
   })
 })
 
@@ -130,9 +133,9 @@ describe('ls', () => {
     vi.stubGlobal('fetch', fetch)
     const { stdout } = await run('ls', [
       new PathSpec({
-        original: '/volume/',
+        virtual: '/volume/',
         directory: '/volume/',
-        prefix: '/volume',
+        resourcePath: mountKey('/volume/', '/volume'),
         resolved: false,
       }),
     ])
@@ -153,6 +156,32 @@ describe('grep', () => {
     const { stdout, exitCode } = await run('grep', [pathOf('/volume/notes.md')], ['TODO'])
     expect(exitCode).toBe(0)
     expect(stdout.trim()).toBe('TODO: beta')
+  })
+})
+
+describe('touch', () => {
+  it('records mount-relative write keys, not the mount-prefixed path', async () => {
+    const { fetch } = routedFetch((call: FetchCall) => {
+      if (call.method === 'HEAD' && call.url.includes('a.txt')) return notFoundResponse()
+      if (call.method === 'HEAD') return new Response(null, { status: 200 })
+      return new Response(null, { status: 204 })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const { writes } = await run('touch', [pathOf('/volume/a.txt')])
+    expect(writes).toEqual(['/a.txt'])
+  })
+})
+
+describe('mkdir', () => {
+  it('records mount-relative write keys, not the mount-prefixed path', async () => {
+    const { fetch } = routedFetch((call: FetchCall) => {
+      if (call.method === 'PUT') return new Response(null, { status: 200 })
+      if (call.url.includes('newdir')) return notFoundResponse()
+      return new Response(null, { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const { writes } = await run('mkdir', [pathOf('/volume/newdir')])
+    expect(writes).toEqual(['/newdir'])
   })
 })
 

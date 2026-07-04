@@ -57,7 +57,7 @@ class IndexTrackingReader:
                          *args,
                          **kwargs) -> bytes:
         self.seen_indexes.append(index)
-        original = path.original if isinstance(path, PathSpec) else path
+        original = path.virtual if isinstance(path, PathSpec) else path
         if str(original).endswith(".json"):
             return b'{"name": "mirage"}\n'
         if str(original).endswith(".csv"):
@@ -91,7 +91,6 @@ def expected_index() -> RAMIndexCacheStore:
 def index_tracker(monkeypatch) -> IndexTrackingReader:
     tracker = IndexTrackingReader()
     monkeypatch.setattr(_helpers, "_read_bytes", tracker.read_bytes)
-    monkeypatch.setattr(_helpers, "_read_stream", tracker.read_stream)
     return tracker
 
 

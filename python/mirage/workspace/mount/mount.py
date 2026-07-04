@@ -16,6 +16,8 @@ import dataclasses
 import inspect
 from typing import Any, Callable
 
+from mirage.cache.context import push_cache_manager
+from mirage.cache.manager import CacheManager
 from mirage.commands.builtin.utils.safeguard import (apply_op_safeguard,
                                                      run_with_timeout)
 from mirage.commands.config import RegisteredCommand
@@ -29,6 +31,7 @@ from mirage.observe.context import (push_mount_prefix, push_revisions,
 from mirage.ops.registry import RegisteredOp
 from mirage.resource.base import BaseResource
 from mirage.types import ConsistencyPolicy, MountMode, PathSpec
+from mirage.utils.key_prefix import mount_key
 
 
 def _wrap_cmd_streams(
@@ -75,7 +78,7 @@ def _wrap_cmd_streams(
     return stream, io
 
 
-class Mount:
+class MountEntry:
     """A mounted resource with command and op dispatch.
 
     Each mount has its own lookup tables for commands and ops.
@@ -105,6 +108,7 @@ class Mount:
         self.resource = resource
         self.mode = mode
         self.consistency = consistency
+        self.cache_manager: CacheManager | None = None
         # Per-path revision pins installed at Workspace.load time. Read
         # functions consult these via the ``revision_for`` contextvar
         # lookup; on a hit, the backend GET pins to the recorded
@@ -393,7 +397,7 @@ class Mount:
             stdin (ByteSource | None): stdin data.
             cwd (str): virtual cwd from session.
         """
-        extension = get_extension(paths[0].original) if paths else None
+        extension = get_extension(paths[0].virtual) if paths else None
 
         handlers = self._resolve_cascade(cmd_name, extension, self._cmds,
                                          self._general_cmds)
@@ -408,33 +412,38 @@ class Mount:
                                                      extension) in self._cmds
 
         paths = [
-            dataclasses.replace(p, prefix=mount_prefix) if isinstance(
-                p, PathSpec) else p for p in paths
+            dataclasses.replace(
+                p, resource_path=mount_key(p.virtual, mount_prefix))
+            if isinstance(p, PathSpec) else p for p in paths
         ]
 
-        # Attach this mount's prefix to path-shaped flag values so backend
-        # reads can strip it: a single PathSpec (e.g. awk -f, single grep -f)
-        # or a list of PathSpec (repeatable grep -f). Everything else (bools,
-        # strings, list[str] like repeated -e) is not a path and passes
-        # through unchanged.
+        # Stamp this mount's backend key onto path-shaped flag values so
+        # backend reads can address them: a single PathSpec (e.g. awk -f,
+        # single grep -f) or a list of PathSpec (repeatable grep -f).
+        # Everything else (bools, strings, list[str] like repeated -e) is
+        # not a path and passes through unchanged.
         kw = {}
         for k, v in flag_kwargs.items():
             if isinstance(v, PathSpec):
-                kw[k] = dataclasses.replace(v, prefix=mount_prefix)
+                kw[k] = dataclasses.replace(v,
+                                            resource_path=mount_key(
+                                                v.virtual, mount_prefix))
             elif isinstance(v, list) and v and all(
                     isinstance(item, PathSpec) for item in v):
                 kw[k] = [
-                    dataclasses.replace(item, prefix=mount_prefix)
+                    dataclasses.replace(item,
+                                        resource_path=mount_key(
+                                            item.virtual, mount_prefix))
                     for item in v
                 ]
             else:
                 kw[k] = v
         kw["index"] = self.resource.index
         kw["cwd"] = PathSpec(
-            original=cwd,
+            virtual=cwd,
             directory=cwd,
             resolved=False,
-            prefix=mount_prefix,
+            resource_path=mount_key(cwd, mount_prefix),
         )
         kw["filetype_fns"] = (filetype_fns if not is_filetype_cmd else None)
         if stdin is not None:
@@ -449,6 +458,7 @@ class Mount:
 
         prev_prefix = push_mount_prefix(mount_prefix)
         revs_token = push_revisions(self.revisions or None)
+        prev_manager = push_cache_manager(self.cache_manager)
         try:
             for cmd in handlers:
                 if cmd.write and self.mode == MountMode.READ:
@@ -471,6 +481,7 @@ class Mount:
         finally:
             reset_revisions(revs_token)
             push_mount_prefix(prev_prefix)
+            push_cache_manager(prev_manager)
 
     async def execute_op(
         self,
@@ -500,9 +511,9 @@ class Mount:
 
         mount_prefix = self.prefix.rstrip("/")
         scope = PathSpec(
-            original=path,
+            virtual=path,
             directory=path.rsplit("/", 1)[0] or "/",
-            prefix=mount_prefix,
+            resource_path=mount_key(path, mount_prefix),
         )
         kwargs.setdefault("index", self.resource.index)
         op_override = self.command_safeguards.get(op_name)

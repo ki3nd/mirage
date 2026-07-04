@@ -59,7 +59,8 @@ describe('resolveGlobs', () => {
   it('passes through glob PathSpecs when the resource lacks glob', async () => {
     const reg = new MountRegistry({ '/ram': new PlainResource() }, MountMode.WRITE)
     const p = new PathSpec({
-      original: '/ram/*.txt',
+      resourcePath: 'ram/*.txt',
+      virtual: '/ram/*.txt',
       directory: '/ram/',
       pattern: '*.txt',
       resolved: false,
@@ -76,13 +77,14 @@ describe('resolveGlobs', () => {
     ])
     const reg = new MountRegistry({ '/ram': res }, MountMode.WRITE)
     const p = new PathSpec({
-      original: '/ram/*.txt',
+      resourcePath: 'ram/*.txt',
+      virtual: '/ram/*.txt',
       directory: '/ram/',
       pattern: '*.txt',
       resolved: false,
     })
     const out = await resolveGlobs([p], reg)
-    expect(out.map((x) => (x instanceof PathSpec ? x.original : x))).toEqual([
+    expect(out.map((x) => (x instanceof PathSpec ? x.virtual : x))).toEqual([
       '/ram/a.txt',
       '/ram/b.txt',
     ])
@@ -91,7 +93,8 @@ describe('resolveGlobs', () => {
   it('skips glob expansion for args in textArgs', async () => {
     const reg = new MountRegistry({ '/ram': new PlainResource() }, MountMode.WRITE)
     const p = new PathSpec({
-      original: '*.txt',
+      resourcePath: '*.txt',
+      virtual: '*.txt',
       directory: '',
       pattern: '*.txt',
       resolved: false,

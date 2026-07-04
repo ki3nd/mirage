@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountPrefixOf } from '../../../utils/key_prefix.ts'
 import type { SlackAccessor } from '../../../accessor/slack.ts'
 import type { IndexCacheStore } from '../../../cache/index/store.ts'
 import { resolveSlackGlob } from '../../../core/slack/glob.ts'
@@ -29,6 +30,7 @@ import { IOResult } from '../../../io/types.ts'
 import { type FileStat, type PathSpec, ResourceName } from '../../../types.ts'
 import { command, type CommandFnResult, type CommandOpts } from '../../config.ts'
 import { specOf } from '../../spec/builtins.ts'
+import { patternArg } from '../grep_helper.ts'
 import { rgGeneric } from '../generic/rg.ts'
 
 const ENC = new TextEncoder()
@@ -47,8 +49,8 @@ async function rgCommand(
   texts: string[],
   opts: CommandOpts,
 ): Promise<CommandFnResult> {
-  const [exprText] = texts
-  if (exprText === undefined) {
+  const pattern = patternArg(texts, opts.flags)
+  if (pattern === null) {
     return [
       null,
       new IOResult({ exitCode: 2, stderr: ENC.encode('rg: usage: rg [flags] pattern [path]\n') }),
@@ -57,13 +59,13 @@ async function rgCommand(
   const maxCount = typeof opts.flags.m === 'string' ? Number.parseInt(opts.flags.m, 10) : null
 
   const pushdownWarnings: string[] = []
-  if (paths.length > 0) {
+  if (paths.length > 0 && !pattern.includes('\n')) {
     const firstPath = paths[0]
     if (firstPath !== undefined) {
       const scope = detectScope(firstPath)
       if (scope.useNative) {
-        const filePrefix = firstPath.prefix
-        const query = buildQuery(exprText, scope)
+        const filePrefix = mountPrefixOf(firstPath.virtual, firstPath.resourcePath)
+        const query = buildQuery(pattern, scope)
         const count = maxCount ?? 100
         const target = scope.target
         const doMessages = target === undefined || target === 'date' || target === 'messages'

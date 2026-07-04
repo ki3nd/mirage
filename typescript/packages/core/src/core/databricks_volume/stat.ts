@@ -12,11 +12,12 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { DatabricksVolumeAccessor } from '../../accessor/databricks_volume.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { FileStat, FileType, type PathSpec } from '../../types.ts'
 import { guessType } from '../../utils/filetype.ts'
-import { stripSlash } from '../../utils/slash.ts'
+import { rstripSlash, stripSlash } from '../../utils/slash.ts'
 import { dbxFetch } from './_client.ts'
 import { isNotFound, notFoundError } from './errors.ts'
 import { backendPath } from './path.ts'
@@ -41,7 +42,7 @@ async function directoryStatOrRaise(
   try {
     await dbxFetch(accessor, 'HEAD', 'directories', remotePath)
   } catch (exc) {
-    if (isNotFound(exc)) throw notFoundError(path.original)
+    if (isNotFound(exc)) throw notFoundError(path.virtual)
     throw exc
   }
   return new FileStat({ name: nameFromBackendPath(remotePath), type: FileType.DIRECTORY })
@@ -50,11 +51,37 @@ async function directoryStatOrRaise(
 export async function stat(
   accessor: DatabricksVolumeAccessor,
   path: PathSpec,
-  _index?: IndexCacheStore,
+  index?: IndexCacheStore,
 ): Promise<FileStat> {
-  const stripped = stripSlash(path.stripPrefix)
+  const stripped = stripSlash(path.mountPath)
   if (stripped === '') {
     return new FileStat({ name: '/', type: FileType.DIRECTORY })
+  }
+  // Fast path: the index cache populated by readdir() carries size, mtime, and
+  // type for every listed entry, so stat returns without a network round-trip.
+  // Mirrors Python's mirage/core/databricks_volume/stat.py.
+  if (index !== undefined) {
+    const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+    const virtualKey = prefix !== '' ? `${rstripSlash(prefix)}/${stripped}` : `/${stripped}`
+    const lookup = await index.get(virtualKey)
+    if (lookup.entry !== undefined && lookup.entry !== null) {
+      const entry = lookup.entry
+      if (entry.resourceType === 'folder') {
+        return new FileStat({ name: entry.name, type: FileType.DIRECTORY })
+      }
+      return new FileStat({
+        name: entry.name,
+        size: entry.size ?? null,
+        modified: entry.remoteTime !== '' ? entry.remoteTime : null,
+        type: guessType(entry.name),
+      })
+    }
+    // Parent was already listed and didn't include this path — it doesn't exist.
+    const parent = virtualKey.replace(/\/[^/]*$/, '') || '/'
+    const parentListing = await index.listDir(parent)
+    if (parentListing.entries !== undefined && parentListing.entries !== null) {
+      throw notFoundError(path.virtual)
+    }
   }
   const remotePath = backendPath(accessor.config, path)
   let r: Response

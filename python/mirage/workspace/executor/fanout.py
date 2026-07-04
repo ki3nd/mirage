@@ -46,7 +46,7 @@ def _should_fan_out(
     """
     if not paths:
         return False
-    target = paths[0].original
+    target = paths[0].virtual
     if not registry.descendant_mounts(target):
         return False
     if cmd_name in _TRAVERSAL_CMDS:
@@ -214,6 +214,27 @@ async def _filter_under_prefixes(
     return ("\n".join(out_lines) + "\n").encode("utf-8") if out_lines else b""
 
 
+async def _drop_mount_root_line(stdout: ByteSource, mount_root: str) -> bytes:
+    """Drop a descendant find's own mount-root line.
+
+    A per-mount find now emits its start directory, so a descendant
+    mount's find yields its mount-root path. The mount-point entry is
+    instead synthesized centrally (with the mount's display name and the
+    full predicate tree applied), so the raw root line is dropped here to
+    avoid a duplicate that skips the name filter.
+
+    Args:
+        stdout (ByteSource): descendant find output.
+        mount_root (str): the descendant mount root path.
+    """
+    data = await materialize(stdout)
+    text = data.decode("utf-8", errors="replace")
+    out_lines = [
+        line for line in text.split("\n") if line != "" and line != mount_root
+    ]
+    return ("\n".join(out_lines) + "\n").encode("utf-8") if out_lines else b""
+
+
 async def _fan_out_traversal(
     cmd_name: str,
     paths: list[PathSpec],
@@ -237,7 +258,7 @@ async def _fan_out_traversal(
     directory entries (subject to depth and -type filters) because
     mirage's per-mount find doesn't emit the path argument itself.
     """
-    target_path = paths[0].original
+    target_path = paths[0].virtual
     descendants = registry.descendant_mounts(target_path)
     descendant_prefixes = [m.prefix.rstrip("/") for m in descendants]
 
@@ -259,8 +280,9 @@ async def _fan_out_traversal(
                 continue
             sub_texts = _adjust_depth_texts(texts, target_path, mount.prefix)
             sub_paths = [
-                PathSpec(original=mount_root,
+                PathSpec(virtual=mount_root,
                          directory=mount_root,
+                         resource_path="",
                          resolved=True)
             ]
         try:
@@ -280,6 +302,8 @@ async def _fan_out_traversal(
 
         if mount is primary_mount and descendant_prefixes and stdout:
             stdout = await _filter_under_prefixes(stdout, descendant_prefixes)
+        elif mount is not primary_mount and cmd_name == "find" and stdout:
+            stdout = await _drop_mount_root_line(stdout, mount_root)
 
         if stdout is not None:
             data = await materialize(stdout)

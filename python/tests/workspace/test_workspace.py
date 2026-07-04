@@ -26,9 +26,9 @@ def _run(coro):
 def _ws():
     """Workspace with 3 RAM mounts: /s3/, /disk/, /ram/."""
     s3 = RAMResource()
-    s3.is_remote = True
+    s3.caches_reads = True
     disk = RAMResource()
-    disk.is_remote = True
+    disk.caches_reads = True
     ram = RAMResource()
 
     s3._store.files["/report.csv"] = b"name,age\nalice,30\nbob,25\n"
@@ -1677,8 +1677,8 @@ def test_cross_mount_diff_different():
     io = _exec(ws, "diff /disk/a.txt /ram/b.txt")
     assert io.exit_code == 1
     out = _stdout(io)
-    assert b"---" in out
-    assert b"+++" in out
+    assert b"< aaa" in out
+    assert b"> bbb" in out
 
 
 def test_cross_mount_cmp_same():
@@ -1886,7 +1886,7 @@ def test_sh_alias():
 def test_bash_dash_c_for_loop_over_dirs():
     """`bash -lc` with a for-loop iterating mount paths."""
     s3 = RAMResource()
-    s3.is_remote = True
+    s3.caches_reads = True
     s3._store.dirs.update({
         "/INBOX",
         "/INBOX/2026-04-28",
@@ -2379,11 +2379,11 @@ def test_unmount_closes_resource_when_owned():
 
 
 def test_unmount_rejects_reserved_prefixes():
-    """unmount of cache root / history view / dev / unknown prefix raises."""
+    """unmount of virtual root / history view / dev / unknown prefix raises."""
     ws = _ws()
     import pytest
 
-    with pytest.raises(ValueError, match="cache root"):
+    with pytest.raises(ValueError, match="virtual root"):
         asyncio.run(ws.unmount("/"))
     with pytest.raises(ValueError, match="history view"):
         asyncio.run(ws.unmount("/.bash_history"))

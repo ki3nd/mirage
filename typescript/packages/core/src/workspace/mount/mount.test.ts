@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountPrefixOf } from '../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { command, type CommandFn, RegisteredCommand } from '../../commands/config.ts'
 import { CommandSpec, Operand, OperandKind } from '../../commands/spec/types.ts'
@@ -21,7 +22,7 @@ import { revisionFor } from '../../observe/context.ts'
 import type { RegisteredOp } from '../../ops/registry.ts'
 import type { Resource } from '../../resource/base.ts'
 import { MountMode, PathSpec } from '../../types.ts'
-import { Mount } from './mount.ts'
+import { MountEntry } from './mount.ts'
 
 class StubResource implements Resource {
   readonly kind = 'ram'
@@ -38,25 +39,29 @@ const BASIC_SPEC = new CommandSpec({ rest: new Operand({ kind: OperandKind.PATH 
 const OK_CMD: CommandFn = () => [null, new IOResult({ exitCode: 0 })]
 const OK_CMD_STDOUT: CommandFn = () => [new TextEncoder().encode('ok'), new IOResult()]
 
-function makeMount(mode: MountMode = MountMode.WRITE): Mount {
-  return new Mount({ prefix: '/ram/', resource: new StubResource(), mode })
+function makeMount(mode: MountMode = MountMode.WRITE): MountEntry {
+  return new MountEntry({ prefix: '/ram/', resource: new StubResource(), mode })
 }
 
 describe('Mount constructor validation', () => {
   it('requires prefix to start with /', () => {
-    expect(() => new Mount({ prefix: 'ram/', resource: new StubResource() })).toThrow(/start with/)
+    expect(() => new MountEntry({ prefix: 'ram/', resource: new StubResource() })).toThrow(
+      /start with/,
+    )
   })
 
   it('requires prefix to end with /', () => {
-    expect(() => new Mount({ prefix: '/ram', resource: new StubResource() })).toThrow(/end with/)
+    expect(() => new MountEntry({ prefix: '/ram', resource: new StubResource() })).toThrow(
+      /end with/,
+    )
   })
 
   it('rejects double-slash prefixes', () => {
-    expect(() => new Mount({ prefix: '//ram/', resource: new StubResource() })).toThrow(/\/\//)
+    expect(() => new MountEntry({ prefix: '//ram/', resource: new StubResource() })).toThrow(/\/\//)
   })
 
   it('defaults mode to READ', () => {
-    const m = new Mount({ prefix: '/ram/', resource: new StubResource() })
+    const m = new MountEntry({ prefix: '/ram/', resource: new StubResource() })
     expect(m.mode).toBe(MountMode.READ)
   })
 })
@@ -190,13 +195,16 @@ describe('Mount.executeCmd', () => {
     const m = makeMount()
     let seenPrefix: string | null = null
     const fn: CommandFn = (_accessor, paths) => {
-      seenPrefix = paths[0]?.prefix ?? null
+      seenPrefix =
+        (paths[0] === undefined
+          ? undefined
+          : mountPrefixOf(paths[0].virtual, paths[0].resourcePath)) ?? null
       return [null, new IOResult()]
     }
     const [cmd] = command({ name: 'cat', resource: 'ram', spec: BASIC_SPEC, fn })
     if (cmd === undefined) throw new Error('missing')
     m.register(cmd)
-    await m.executeCmd('cat', [PathSpec.fromStrPath('/hello.txt')], [], {})
+    await m.executeCmd('cat', [PathSpec.fromStrPath('/ram/hello.txt')], [], {})
     expect(seenPrefix).toBe('/ram')
   })
 })
@@ -210,7 +218,7 @@ describe('Mount.executeOp', () => {
       filetype: null,
       write: false,
       fn: (_accessor: Accessor, path: PathSpec) =>
-        Promise.resolve(new TextEncoder().encode(path.original)),
+        Promise.resolve(new TextEncoder().encode(path.virtual)),
     }
     m.registerOp(op)
     const result = await m.executeOp('read', '/x.txt')
@@ -252,7 +260,7 @@ describe('Mount.revisions', () => {
       filetype: null,
       write: false,
       fn: (_accessor: Accessor, path: PathSpec) => {
-        observed = revisionFor(path.original)
+        observed = revisionFor(path.virtual)
         return Promise.resolve(new Uint8Array())
       },
     }

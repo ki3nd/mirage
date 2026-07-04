@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '@struktoai/mirage-core'
 import {
   type FileStat,
   HttpLangfuseTransport,
@@ -40,7 +41,7 @@ export interface LangfuseResourceState {
 
 export class LangfuseResource implements Resource {
   readonly kind: string = ResourceName.LANGFUSE
-  readonly isRemote: boolean = true
+  readonly cachesReads: boolean = true
   readonly indexTtl: number = 600
   readonly prompt: string = LANGFUSE_PROMPT
   readonly config: LangfuseConfig
@@ -108,14 +109,14 @@ export class LangfuseResource implements Resource {
     const effective =
       prefix !== ''
         ? paths.map((p) =>
-            p.prefix !== ''
+            mountPrefixOf(p.virtual, p.resourcePath) !== ''
               ? p
               : new PathSpec({
-                  original: p.original,
+                  virtual: p.virtual,
                   directory: p.directory,
                   ...(p.pattern !== null ? { pattern: p.pattern } : {}),
                   resolved: p.resolved,
-                  prefix,
+                  resourcePath: mountKey(p.virtual, prefix),
                 }),
           )
         : paths

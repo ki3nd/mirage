@@ -16,10 +16,12 @@ import re
 
 from mirage.accessor.discord import DiscordAccessor
 from mirage.cache.index import IndexCacheStore
+from mirage.core.discord.entry import snowflake_to_iso
 from mirage.core.discord.readdir import readdir as _readdir
 from mirage.types import FileStat, FileType, PathSpec
 from mirage.utils.errors import enoent
 from mirage.utils.filetype import filetype_from_mimetype
+from mirage.utils.key_prefix import mount_key, mount_prefix_of
 
 VIRTUAL_DIRS = {"", "channels", "members"}
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -35,9 +37,9 @@ async def _populate_via_parent(
     try:
         await _readdir(
             accessor,
-            PathSpec(original=parent_virtual,
+            PathSpec(virtual=parent_virtual,
                      directory=parent_virtual,
-                     prefix=prefix),
+                     resource_path=mount_key(parent_virtual, prefix)),
             index=index,
         )
     # best-effort cache populate; canonical ENOENT raised below
@@ -51,17 +53,12 @@ async def stat(
     index: IndexCacheStore = None,
 ) -> FileStat:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
-    virtual = path.original
-    if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.original
-
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
-    key = path.strip("/")
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
+    prefix = mount_prefix_of(path.virtual, path.resource_path)
+    key = path.resource_path
 
     if not key:
         return FileStat(name="/", type=FileType.DIRECTORY)
@@ -99,6 +96,7 @@ async def stat(
         return FileStat(
             name=lookup.entry.vfs_name or lookup.entry.name,
             type=FileType.DIRECTORY,
+            modified=snowflake_to_iso(lookup.entry.remote_time),
             extra={"channel_id": lookup.entry.id},
         )
 
@@ -123,16 +121,18 @@ async def stat(
         return FileStat(name=parts[3], type=FileType.DIRECTORY)
 
     # <guild>/channels/<ch>/<date>/chat.jsonl
-    if (len(parts) == 5 and parts[1] == "channels"
+    if (len(parts) == 5 and parts[1] == "channels" and _DATE_RE.match(parts[3])
             and parts[4] == "chat.jsonl"):
         return FileStat(name="chat.jsonl", type=FileType.TEXT)
 
     # <guild>/channels/<ch>/<date>/files
-    if (len(parts) == 5 and parts[1] == "channels" and parts[4] == "files"):
+    if (len(parts) == 5 and parts[1] == "channels" and _DATE_RE.match(parts[3])
+            and parts[4] == "files"):
         return FileStat(name="files", type=FileType.DIRECTORY)
 
     # <guild>/channels/<ch>/<date>/files/<blob>
-    if (len(parts) == 6 and parts[1] == "channels" and parts[4] == "files"):
+    if (len(parts) == 6 and parts[1] == "channels" and _DATE_RE.match(parts[3])
+            and parts[4] == "files"):
         if index is None:
             raise enoent(virtual)
         lookup = await index.get(virtual_key)

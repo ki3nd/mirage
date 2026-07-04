@@ -16,54 +16,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from mirage.core.github.scope import (count_scope_files, estimate_scope,
-                                      is_repo_root, scope_relative_key)
-from mirage.core.github.tree_entry import TreeEntry
+from mirage.core.github.scope import (count_scope_files, is_repo_root,
+                                      scope_relative_key)
 from mirage.types import PathSpec
-
-
-@pytest.fixture
-def tree():
-    return {
-        "src":
-        TreeEntry(path="src", type="tree", sha="aaa", size=None),
-        "src/main.py":
-        TreeEntry(path="src/main.py", type="blob", sha="bbb", size=120),
-        "src/utils.py":
-        TreeEntry(path="src/utils.py", type="blob", sha="ccc", size=80),
-        "src/data.json":
-        TreeEntry(path="src/data.json", type="blob", sha="ddd", size=500),
-        "README.md":
-        TreeEntry(path="README.md", type="blob", sha="eee", size=50),
-    }
-
-
-@pytest.mark.asyncio
-async def test_estimate_scope_all_files(tree):
-    count, total = await estimate_scope(tree, "", "*")
-    assert count == 4
-    assert total == 750
-
-
-@pytest.mark.asyncio
-async def test_estimate_scope_pattern_filter(tree):
-    count, total = await estimate_scope(tree, "src", "*.py")
-    assert count == 2
-    assert total == 200
-
-
-@pytest.mark.asyncio
-async def test_estimate_scope_specific_match(tree):
-    count, total = await estimate_scope(tree, "src", "data.json")
-    assert count == 1
-    assert total == 500
-
-
-@pytest.mark.asyncio
-async def test_estimate_scope_empty_directory(tree):
-    count, total = await estimate_scope(tree, "nonexistent", "*")
-    assert count == 0
-    assert total == 0
+from mirage.utils.key_prefix import mount_key
 
 
 @pytest.fixture
@@ -86,12 +42,16 @@ def entries():
 
 
 def test_scope_relative_key_strips_mount_prefix():
-    path = PathSpec(original="/gh/src", directory="/gh/src", prefix="/gh")
+    path = PathSpec(resource_path=mount_key("/gh/src", "/gh"),
+                    virtual="/gh/src",
+                    directory="/gh/src")
     assert scope_relative_key(path) == "/src"
 
 
 def test_scope_relative_key_root_becomes_slash():
-    path = PathSpec(original="/gh", directory="/gh", prefix="/gh")
+    path = PathSpec(resource_path=mount_key("/gh", "/gh"),
+                    virtual="/gh",
+                    directory="/gh")
     assert scope_relative_key(path) == "/"
 
 

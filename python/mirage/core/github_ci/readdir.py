@@ -19,6 +19,7 @@ from mirage.core.github_ci.runs import list_jobs_for_run, list_runs
 from mirage.core.github_ci.workflows import list_workflows
 from mirage.types import PathSpec
 from mirage.utils.errors import enoent
+from mirage.utils.key_prefix import mount_key, mount_prefix_of
 
 
 def _safe_name(name: str) -> str:
@@ -33,15 +34,12 @@ async def readdir(
     index: IndexCacheStore = None,
 ) -> list[str]:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
-    virtual = path.original
-    if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.directory if path.pattern else path.original
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
+    prefix = mount_prefix_of(path.virtual, path.resource_path)
+    path = (path.dir if path.pattern else path).mount_path
     key = path.strip("/")
     virtual_key = prefix + "/" + key if key else prefix or "/"
 
@@ -67,6 +65,7 @@ async def readdir(
                 name=wf.get("name", ""),
                 resource_type="ci/workflow",
                 vfs_name=filename,
+                remote_time=wf.get("updated_at", ""),
             )
             entries.append((filename, entry))
             names.append(f"{prefix}/{key}/{filename}")
@@ -105,9 +104,9 @@ async def readdir(
             lookup = await index.get(virtual_key)
             if lookup.entry is None:
                 parent = PathSpec(
-                    original=prefix + "/runs",
+                    virtual=prefix + "/runs",
                     directory=prefix + "/runs",
-                    prefix=prefix,
+                    resource_path=mount_key(prefix + "/runs", prefix),
                 )
                 await readdir(accessor, parent, index)
                 lookup = await index.get(virtual_key)
@@ -131,9 +130,9 @@ async def readdir(
             run_lookup = await index.get(run_virtual)
             if run_lookup.entry is None:
                 parent = PathSpec(
-                    original=prefix + "/runs",
+                    virtual=prefix + "/runs",
                     directory=prefix + "/runs",
-                    prefix=prefix,
+                    resource_path=mount_key(prefix + "/runs", prefix),
                 )
                 await readdir(accessor, parent, index)
                 run_lookup = await index.get(run_virtual)
@@ -181,9 +180,9 @@ async def readdir(
             run_lookup = await index.get(run_virtual)
             if run_lookup.entry is None:
                 parent = PathSpec(
-                    original=prefix + "/runs",
+                    virtual=prefix + "/runs",
                     directory=prefix + "/runs",
-                    prefix=prefix,
+                    resource_path=mount_key(prefix + "/runs", prefix),
                 )
                 await readdir(accessor, parent, index)
                 run_lookup = await index.get(run_virtual)
@@ -204,6 +203,7 @@ async def readdir(
                 resource_type="ci/artifact",
                 vfs_name=filename,
                 size=a.get("size_in_bytes"),
+                remote_time=a.get("updated_at", ""),
             )
             entries.append((filename, entry))
             names.append(f"{prefix}/{key}/{filename}")

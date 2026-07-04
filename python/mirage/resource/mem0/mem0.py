@@ -23,7 +23,7 @@ from mirage.types import ResourceName
 class Mem0Resource(BaseResource):
 
     name: str = ResourceName.MEM0
-    is_remote: bool = True
+    caches_reads: bool = True
     PROMPT: str = PROMPT
     SUPPORTS_SNAPSHOT: bool = False
 

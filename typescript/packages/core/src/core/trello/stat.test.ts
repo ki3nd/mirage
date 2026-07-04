@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { TrelloAccessor } from '../../accessor/trello.ts'
 import { IndexEntry } from '../../cache/index/config.ts'
@@ -26,8 +27,8 @@ class NoopTransport implements TrelloTransport {
   }
 }
 
-function spec(original: string, prefix = ''): PathSpec {
-  return new PathSpec({ original, directory: original, prefix })
+function spec(virtual: string, prefix = ''): PathSpec {
+  return new PathSpec({ virtual, directory: virtual, resourcePath: mountKey(virtual, prefix) })
 }
 
 describe('trello stat virtual roots', () => {
@@ -59,6 +60,7 @@ describe('trello stat workspace nodes', () => {
           id: 'w1',
           name: 'Acme',
           resourceType: 'trello/workspace',
+          remoteTime: '2026-04-05T00:00:00.000Z',
           vfsName: 'Acme__w1',
         }),
       ],
@@ -71,6 +73,7 @@ describe('trello stat workspace nodes', () => {
     expect(s.type).toBe(FileType.DIRECTORY)
     expect(s.name).toBe('Acme__w1')
     expect(s.extra.workspace_id).toBe('w1')
+    expect(s.modified).toBe('2026-04-05T00:00:00.000Z')
   })
 
   it('returns json for workspace.json', async () => {

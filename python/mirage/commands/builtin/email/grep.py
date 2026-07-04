@@ -34,6 +34,7 @@ from mirage.core.email.stat import stat as _stat
 from mirage.io.types import ByteSource, IOResult
 from mirage.provision.types import ProvisionResult
 from mirage.types import PathSpec
+from mirage.utils.key_prefix import mount_prefix_of
 
 
 async def grep_provision(
@@ -66,7 +67,8 @@ async def grep(
     fl = FlagView(flags, spec=SPECS["grep"])
     pattern = pattern_arg(texts, fl)
 
-    if paths and pattern is not None and (fl.bool("r") or fl.bool("R")):
+    if paths and pattern is not None and "\n" not in pattern and (
+            fl.bool("r") or fl.bool("R")):
         scope = detect_scope(paths[0])
         if scope.use_native and scope.folder:
             return await _grep_server_side(accessor,
@@ -113,7 +115,8 @@ async def _grep_server_side(
     o: bool = False,
     max_count: int | None = None,
 ) -> tuple[ByteSource | None, IOResult]:
-    file_prefix = paths[0].prefix if paths else ""
+    file_prefix = mount_prefix_of(paths[0].virtual,
+                                  paths[0].resource_path) if paths else ""
     pairs = await search_and_format(
         accessor,
         EmailScope(use_native=True, folder=folder),

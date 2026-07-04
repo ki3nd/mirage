@@ -12,7 +12,6 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-from datetime import datetime, timezone
 from pathlib import Path
 
 import aiofiles.os
@@ -20,7 +19,7 @@ from aiofiles.os import path as aio_path
 
 from mirage.accessor.disk import DiskAccessor
 from mirage.cache.index import IndexCacheStore
-from mirage.core.timeutil import to_iso_z
+from mirage.core.timeutil import epoch_to_iso
 from mirage.types import FileStat, FileType, PathSpec
 from mirage.utils.filetype import guess_type
 
@@ -36,21 +35,18 @@ async def stat(accessor: DiskAccessor,
                path: PathSpec,
                index: IndexCacheStore = None) -> FileStat:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
+    virtual = path.virtual
     if isinstance(path, PathSpec):
-        prefix = path.prefix
-        path = path.original
-    virtual = path
-    if prefix and path.startswith(prefix):
-        rest = path[len(prefix):]
-        if prefix.endswith("/") or rest == "" or rest.startswith("/"):
-            path = rest or "/"
+        path = path.mount_path
     root = accessor.root
     p = _resolve(root, path)
     if not await aio_path.exists(p):
         raise FileNotFoundError(virtual)
     st = await aiofiles.os.stat(p)
-    modified = to_iso_z(datetime.fromtimestamp(st.st_mtime, tz=timezone.utc))
+    modified = epoch_to_iso(st.st_mtime)
     if await aio_path.isdir(p):
         return FileStat(name=p.name,
                         size=None,

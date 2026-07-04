@@ -12,10 +12,11 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { cacheAwareStreamEager } from '../../../cache/read_through.ts'
 import { IOResult } from '../../../io/types.ts'
-import { Precision, ProvisionResult } from '../../../provision/types.ts'
 import type { FileStat, PathSpec } from '../../../types.ts'
 import type { CommandFnResult, CommandOpts } from '../../config.ts'
+import { numberFlagError } from '../tail_helper.ts'
 import { resolveSource } from '../utils/stream.ts'
 
 const ENC = new TextEncoder()
@@ -121,37 +122,10 @@ async function* headMulti(
     if (p === undefined) continue
     if (paths.length > 1) {
       const prefix = i > 0 ? '\n' : ''
-      yield ENC.encode(`${prefix}==> ${p.original} <==\n`)
+      yield ENC.encode(`${prefix}==> ${p.display} <==\n`)
     }
     const source = stream(p)
     for await (const chunk of headStream(source, lines, bytesMode)) yield chunk
-  }
-}
-
-export async function headProvisionGeneric(
-  paths: PathSpec[],
-  _texts: string[],
-  opts: CommandOpts,
-  stat: Stat,
-): Promise<ProvisionResult> {
-  const [first] = paths
-  if (first === undefined) return new ProvisionResult({ command: 'head' })
-  try {
-    const s = await stat(first)
-    const fileSize = s.size ?? 0
-    const nFlag = typeof opts.flags.n === 'string' ? Number.parseInt(opts.flags.n, 10) : null
-    const lines = nFlag !== null && Number.isFinite(nFlag) ? nFlag : 10
-    const avgLine = 80
-    const low = Math.min(lines * avgLine, fileSize)
-    return new ProvisionResult({
-      command: `head ${first.original}`,
-      networkReadLow: low,
-      networkReadHigh: fileSize,
-      readOps: 1,
-      precision: Precision.RANGE,
-    })
-  } catch {
-    return new ProvisionResult({ command: 'head' })
   }
 }
 
@@ -162,8 +136,11 @@ export async function headGeneric(
   stat: Stat,
   stream: Stream,
 ): Promise<CommandFnResult> {
+  stream = cacheAwareStreamEager(stream)
   const nRaw = typeof opts.flags.n === 'string' ? opts.flags.n : null
   const cRaw = typeof opts.flags.c === 'string' ? opts.flags.c : null
+  const numErr = numberFlagError('head', nRaw, cRaw)
+  if (numErr !== null) return [null, new IOResult({ exitCode: 1, stderr: ENC.encode(numErr) })]
   const lineCount = nRaw !== null ? Number.parseInt(nRaw, 10) : 10
   const byteCount = cRaw !== null ? Number.parseInt(cRaw, 10) : null
   if (paths.length > 0) {

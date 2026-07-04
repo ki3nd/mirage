@@ -79,7 +79,9 @@ async def _populate_index(index):
 @pytest.mark.asyncio
 async def test_stat_root(accessor, index):
     idx = await _populate_index(index)
-    result = await stat(accessor, PathSpec(original="/", directory="/"), idx)
+    result = await stat(accessor,
+                        PathSpec(resource_path="", virtual="/", directory="/"),
+                        idx)
     assert result.type == FileType.DIRECTORY
     assert result.name == "/"
 
@@ -88,8 +90,10 @@ async def test_stat_root(accessor, index):
 async def test_stat_file(accessor, index):
     idx = await _populate_index(index)
     result = await stat(
-        accessor, PathSpec(original="/report.pdf", directory="/report.pdf"),
-        idx)
+        accessor,
+        PathSpec(resource_path="report.pdf",
+                 virtual="/report.pdf",
+                 directory="/report.pdf"), idx)
     assert result.name == "report.pdf"
     assert result.size == 1024
     assert result.extra["file_id"] == "f1"
@@ -99,8 +103,10 @@ async def test_stat_file(accessor, index):
 @pytest.mark.asyncio
 async def test_stat_folder(accessor, index):
     idx = await _populate_index(index)
-    result = await stat(accessor, PathSpec(original="/docs",
-                                           directory="/docs"), idx)
+    result = await stat(
+        accessor,
+        PathSpec(resource_path="docs", virtual="/docs", directory="/docs"),
+        idx)
     assert result.type == FileType.DIRECTORY
     assert result.extra["file_id"] == "folder1"
 
@@ -118,7 +124,9 @@ async def test_stat_shared_drive_is_directory(accessor, index):
         ))
     result = await stat(
         accessor,
-        PathSpec(original="/Team Drive", directory="/Team Drive"),
+        PathSpec(resource_path="Team Drive",
+                 virtual="/Team Drive",
+                 directory="/Team Drive"),
         index,
     )
     assert result.type == FileType.DIRECTORY
@@ -136,7 +144,8 @@ async def test_stat_not_found(accessor, index):
         with pytest.raises(FileNotFoundError):
             await stat(
                 accessor,
-                PathSpec(original="/nonexistent.txt",
+                PathSpec(resource_path="nonexistent.txt",
+                         virtual="/nonexistent.txt",
                          directory="/nonexistent.txt"), idx)
 
 
@@ -155,8 +164,10 @@ async def test_stat_cache_miss_falls_back_via_readdir(accessor, index):
             return_value=files,
     ) as mock_list:
         result = await stat(
-            accessor, PathSpec(original="/fresh.pdf", directory="/fresh.pdf"),
-            index)
+            accessor,
+            PathSpec(resource_path="fresh.pdf",
+                     virtual="/fresh.pdf",
+                     directory="/fresh.pdf"), index)
     assert result.name == "fresh.pdf"
     assert result.extra["file_id"] == "f99"
     assert mock_list.call_count == 1
@@ -165,5 +176,8 @@ async def test_stat_cache_miss_falls_back_via_readdir(accessor, index):
 @pytest.mark.asyncio
 async def test_stat_index_none_raises(accessor):
     with pytest.raises(FileNotFoundError):
-        await stat(accessor, PathSpec(original="/x.pdf", directory="/x.pdf"),
-                   None)
+        await stat(
+            accessor,
+            PathSpec(resource_path="x.pdf",
+                     virtual="/x.pdf",
+                     directory="/x.pdf"), None)

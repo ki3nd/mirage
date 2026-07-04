@@ -26,9 +26,11 @@ import {
   S3Resource,
   SeaweedFSResource,
   Workspace,
+  RegisteredCommand,
+  ProvisionResult,
 } from "@struktoai/mirage-node";
 import { ConsistencyPolicy } from "@struktoai/mirage-core";
-import { runNotFound } from "./cases.ts";
+import { runCacheVerifyCases, runNotFound, runProvisionCacheCases } from "./cases.ts";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -100,6 +102,19 @@ const STREAMING_CASES: ReadonlyArray<readonly [string, string]> = [
   ["head_n1", `head -n 1 {m}/data/example.jsonl`],
   ["grep_m1", `grep -m 1 mirage {m}/data/example.jsonl`],
   ["cat_wc_full", `cat {m}/data/example.jsonl | wc -l`],
+];
+
+// Warm-read serving: a cat warms the file cache for the object, then each
+// read-only command reads the same object and is served entirely from cache,
+// pulling zero backend bytes. cat goes through the generic read-through and
+// grep/head/tail/wc through the shared consumers; a regression that stopped
+// serving warm reads would re-fetch the object and bytes would jump above 0.
+const WARM_SERVE_CASES: ReadonlyArray<readonly [string, string]> = [
+  ["warm_cat", `cat {m}/data/example.jsonl`],
+  ["warm_grep", `grep mirage {m}/data/example.jsonl`],
+  ["warm_head", `head -n 1 {m}/data/example.jsonl`],
+  ["warm_tail", `tail -n 1 {m}/data/example.jsonl`],
+  ["warm_wc", `wc -l {m}/data/example.jsonl`],
 ];
 
 const EXIT_CODE_CASES: ReadonlyArray<readonly [string, string]> = [
@@ -189,11 +204,18 @@ function buildWorkspace(): Workspace {
   );
 }
 
+const LS_TIME_RE = /[A-Z][a-z]{2} [ \d]\d \d{2}:\d{2}/g;
+
 async function run(ws: Workspace, name: string, cmd: string): Promise<void> {
   process.stdout.write(`=== ${name} ===\n`);
   try {
     const result = await ws.execute(cmd);
-    const out = DEC.decode(result.stdout);
+    let out = DEC.decode(result.stdout);
+    // MinIO stamps each seeded object with the real upload time, so the
+    // `ls -l` mtime column resolved from the index is non-deterministic.
+    // Mask it back to the epoch placeholder (Python freezes moto's clock
+    // instead; both keep the truth file stable).
+    if (name.includes("ls_l")) out = out.replace(LS_TIME_RE, "Jan  1 00:00");
     process.stdout.write(out.endsWith("\n") ? out : out + "\n");
     if (name.includes("safeguard_")) {
       const err = DEC.decode(result.stderr);
@@ -247,6 +269,20 @@ async function measureBytes(
   process.stdout.write(
     `bytes=${net} lines=${lines.length} out0=${pyRepr(first)}\n`,
   );
+}
+
+async function warmServe(name: string, mount: string, cmd: string): Promise<void> {
+  const ws = buildWorkspace();
+  try {
+    await ws.execute(`cat ${mount}/data/example.jsonl`);
+    const before = ws.records.reduce((sum, r) => sum + r.bytes, 0);
+    await ws.execute(cmd);
+    const net = ws.records.reduce((sum, r) => sum + r.bytes, 0) - before;
+    process.stdout.write(`=== ${name} ===\n`);
+    process.stdout.write(`bytes=${net} served_from_cache=${net === 0}\n`);
+  } finally {
+    await ws.close();
+  }
 }
 
 async function measureCalls(name: string, cmd: string): Promise<void> {
@@ -320,6 +356,76 @@ async function runConsistency(): Promise<void> {
   }
 }
 
+// In-band coherence: under LAZY (which never revalidates on its own), a mutation
+// done through a mirage command must invalidate the parent listing at the write
+// site, so a previously cached `ls` reflects the change. cp -> core copy, rm -r
+// -> core rm_r: each first caches the listing with ls, mutates in-band, then
+// lists again and must see fresh state. Mirrors s3.py _run_coherence.
+async function runCoherence(): Promise<void> {
+  const ws = new Workspace(
+    {
+      "/s3": new S3Resource({
+        bucket: S3_BUCKET,
+        region: REGION,
+        endpoint: ENDPOINT,
+        accessKeyId: ACCESS,
+        secretAccessKey: SECRET,
+        forcePathStyle: true,
+      }),
+    },
+    { mode: MountMode.WRITE, consistency: ConsistencyPolicy.LAZY },
+  );
+  try {
+    await ws.execute(
+      "mkdir -p /s3/coh && echo one | tee /s3/coh/a.txt > /dev/null",
+    );
+    await run(ws, "coherence:seed_ls", "ls /s3/coh");
+    await ws.execute("cp /s3/coh/a.txt /s3/coh/b.txt");
+    await run(ws, "coherence:after_cp_ls", "ls /s3/coh");
+    await ws.execute(
+      "mkdir -p /s3/coh/sub && echo z | tee /s3/coh/sub/z.txt > /dev/null",
+    );
+    await run(ws, "coherence:after_mkdir_ls", "ls /s3/coh");
+    await ws.execute("rm -r /s3/coh/sub");
+    await run(ws, "coherence:after_rmr_ls", "ls /s3/coh");
+  } finally {
+    await ws.close();
+  }
+}
+
+const S3_GET_PER_1K_USD = 0.0004;
+const S3_EGRESS_PER_GB_USD = 0.09;
+
+function priceCat(ws: Workspace, mountPath: string): void {
+  const mount = ws.registry.mountFor(mountPath);
+  if (mount === null) throw new Error(`no mount for ${mountPath}`);
+  const cmd = mount.resolveCommand("cat", null);
+  if (cmd === null || cmd.provisionFn === null) throw new Error("cat has no estimator");
+  const original = cmd.provisionFn;
+  const priced: typeof original = async (accessor, paths, texts, opts) => {
+    const result = (await original(accessor, paths, texts, opts)) as ProvisionResult;
+    const egress = (result.networkReadHigh * S3_EGRESS_PER_GB_USD) / 1e9;
+    const requests = (result.readOps * S3_GET_PER_1K_USD) / 1000;
+    result.estimatedCostUsd = egress + requests;
+    return result;
+  };
+  mount.register(
+    new RegisteredCommand({
+      name: cmd.name,
+      spec: cmd.spec,
+      resource: cmd.resource,
+      filetype: cmd.filetype,
+      fn: cmd.fn,
+      provisionFn: priced,
+      aggregate: cmd.aggregate,
+      src: cmd.src,
+      dst: cmd.dst,
+      write: cmd.write,
+      safeguard: cmd.safeguard,
+    }),
+  );
+}
+
 async function main(): Promise<void> {
   await seed();
   const ws = buildWorkspace();
@@ -336,6 +442,15 @@ async function main(): Promise<void> {
         await measureBytes(
           ws,
           `${tag}:stream:${name}`,
+          tmpl.replaceAll("{m}", mount),
+        );
+    }
+    for (const mount of MOUNTS) {
+      const tag = mount.slice(1);
+      for (const [name, tmpl] of WARM_SERVE_CASES)
+        await warmServe(
+          `${tag}:warm:${name}`,
+          mount,
           tmpl.replaceAll("{m}", mount),
         );
     }
@@ -364,7 +479,57 @@ async function main(): Promise<void> {
       else DEFAULT_COMMAND_SAFEGUARDS.sleep = prevSleep;
     }
     await runNotFound(ws, "/s3");
+    // The suite workspace is read-only; the cache-flip probe seeds its
+    // own files, so it gets a write-mode mount on the same bucket.
+    const wsWrite = new Workspace(
+      {
+        "/s3": new S3Resource({
+          bucket: S3_BUCKET,
+          region: REGION,
+          endpoint: ENDPOINT,
+          accessKeyId: ACCESS,
+          secretAccessKey: SECRET,
+          forcePathStyle: true,
+        }),
+        "/gcs": new GCSResource({
+          bucket: GCS_BUCKET,
+          endpoint: ENDPOINT,
+          accessKeyId: ACCESS,
+          secretAccessKey: SECRET,
+          forcePathStyle: true,
+        }),
+      },
+      { mode: MountMode.WRITE },
+    );
+    try {
+      await runProvisionCacheCases(wsWrite, "/s3");
+      await runCacheVerifyCases(wsWrite, "/s3", "/gcs");
+      // user cost model: wrap cat's registered estimator so bytes and
+      // request counts become estimatedCostUsd, combined by the
+      // planner like any other field
+      priceCat(wsWrite, "/s3/data");
+      await wsWrite.cache.clear();
+      let priced = await wsWrite.execute("cat /s3/data/example.jsonl", { provision: true });
+      process.stdout.write("=== prov_cost_cat ===\n");
+      process.stdout.write(
+        `net=${priced.networkRead} ops=${String(priced.readOps)} ` +
+          `cost=${(priced.estimatedCostUsd ?? 0).toFixed(10)} precision=${priced.precision}\n`,
+      );
+      priced = await wsWrite.execute("for i in 1 2; do cat /s3/data/example.jsonl; done", {
+        provision: true,
+      });
+      process.stdout.write("=== prov_cost_for ===\n");
+      process.stdout.write(
+        `net=${priced.networkRead} cost=${(priced.estimatedCostUsd ?? 0).toFixed(10)}\n`,
+      );
+      priced = await wsWrite.execute("cat /s3/data/example.jsonl | wc -l", { provision: true });
+      process.stdout.write("=== prov_cost_unpriced_stage ===\n");
+      process.stdout.write(`cost=${String(priced.estimatedCostUsd)}\n`);
+    } finally {
+      await wsWrite.close();
+    }
     await runConsistency();
+    await runCoherence();
   } finally {
     await ws.close();
   }

@@ -49,9 +49,11 @@ def _accessor():
 async def test_read_full_json_from_cache_no_get():
     acc = _accessor()
     index = RAMIndexCacheStore()
-    root = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    root = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     await readdir(acc, root, index)
-    fpath = PathSpec(original="/mem/aaa.json", directory="/mem", prefix="/mem")
+    fpath = PathSpec(virtual="/mem/aaa.json",
+                     directory="/mem",
+                     resource_path="aaa.json")
     data = json.loads(await read(acc, fpath, index))
     assert data["categories"] == ["food"]
     assert acc._client.get_calls == 0
@@ -61,9 +63,11 @@ async def test_read_full_json_from_cache_no_get():
 async def test_read_content_only_memory_text():
     acc = _accessor()
     index = RAMIndexCacheStore()
-    root = PathSpec(original="/mem", directory="/mem", prefix="/mem")
+    root = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     await readdir(acc, root, index)
-    fpath = PathSpec(original="/mem/aaa.json", directory="/mem", prefix="/mem")
+    fpath = PathSpec(virtual="/mem/aaa.json",
+                     directory="/mem",
+                     resource_path="aaa.json")
     assert await read_content(acc, fpath, index) == b"loves bananas\n"
 
 
@@ -71,7 +75,9 @@ async def test_read_content_only_memory_text():
 async def test_read_falls_back_to_get_when_no_cache():
     acc = _accessor()
     index = RAMIndexCacheStore()
-    fpath = PathSpec(original="/mem/zzz.json", directory="/mem", prefix="/mem")
+    fpath = PathSpec(virtual="/mem/zzz.json",
+                     directory="/mem",
+                     resource_path="zzz.json")
     data = json.loads(await read(acc, fpath, index))
     assert data["id"] == "zzz"
     assert acc._client.get_calls == 1
@@ -81,6 +87,6 @@ async def test_read_falls_back_to_get_when_no_cache():
 async def test_read_missing_path_enoent():
     acc = _accessor()
     with pytest.raises(FileNotFoundError):
-        await read(acc,
-                   PathSpec(original="/mem", directory="/mem", prefix="/mem"),
-                   RAMIndexCacheStore())
+        await read(
+            acc, PathSpec(virtual="/mem", directory="/mem", resource_path=""),
+            RAMIndexCacheStore())

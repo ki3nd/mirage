@@ -34,9 +34,9 @@ def _accessor():
 @pytest.mark.asyncio
 async def test_passthrough_non_pattern():
     acc = _accessor()
-    p = PathSpec(original="/mem/aaa.json",
+    p = PathSpec(virtual="/mem/aaa.json",
                  directory="/mem",
-                 prefix="/mem",
+                 resource_path="aaa.json",
                  resolved=True)
     out = await resolve_glob(acc, [p], RAMIndexCacheStore())
     assert out == [p]
@@ -45,11 +45,10 @@ async def test_passthrough_non_pattern():
 @pytest.mark.asyncio
 async def test_expands_star():
     acc = _accessor()
-    p = PathSpec(original="/mem/*.json",
+    p = PathSpec(virtual="/mem/*.json",
                  directory="/mem",
-                 prefix="/mem",
+                 resource_path="*.json",
                  pattern="*.json",
                  resolved=False)
     out = await resolve_glob(acc, [p], RAMIndexCacheStore())
-    assert sorted(x.original
-                  for x in out) == ["/mem/aaa.json", "/mem/bbb.json"]
+    assert sorted(x.virtual for x in out) == ["/mem/aaa.json", "/mem/bbb.json"]

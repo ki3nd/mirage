@@ -15,14 +15,21 @@
 from typing import Any
 
 from mirage.cache.file import io as cache_io
+from mirage.cache.manager import CacheManager
 from mirage.io import IOResult
+from mirage.observe.record import OpRecord
 from mirage.types import ConsistencyPolicy, FileStat, PathSpec
-from mirage.workspace.mount import Mount, MountRegistry
+from mirage.workspace.mount import MountEntry
+from mirage.workspace.mount.namespace import Namespace
 from mirage.workspace.session import assert_mount_allowed
 
 _DISPATCH_READ_OPS = frozenset({"read", "read_bytes"})
 _DISPATCH_WRITE_OPS = frozenset(
     {"write", "write_bytes", "append", "unlink", "create", "truncate"})
+# Ops that act on the path entry itself (lstat semantics); every other op
+# follows symlinks before mount lookup, so reads/writes go to the target
+# and the cache keys under the real path.
+_NO_FOLLOW_OPS = frozenset({"unlink", "rename", "rmdir"})
 
 
 class Dispatcher:
@@ -30,71 +37,85 @@ class Dispatcher:
     consistent.
 
     Owns the cache/IO coordination that used to live on Workspace: cache
-    lookups for remote reads, post-write file-cache eviction, and parent
-    index invalidation. Constructed with the registry, cache store, and
-    consistency policy; holds no other workspace state. Drift checking
-    stays on Workspace (it reads/writes snapshot-owned state), which guards
-    its own dispatch wrapper before delegating here.
+    lookups for read-caching backends, post-write file-cache eviction,
+    and parent index invalidation. Constructed with the namespace (for
+    addressing), cache store, and consistency policy; holds no other
+    workspace state. Drift checking stays on Workspace (it reads/writes
+    snapshot-owned state), which guards its own dispatch wrapper before
+    delegating here.
     """
 
-    def __init__(self, registry: MountRegistry, cache,
+    def __init__(self, namespace: Namespace, cache,
                  consistency: ConsistencyPolicy) -> None:
-        self._registry = registry
+        self._namespace = namespace
         self._cache = cache
         self._consistency = consistency
 
     async def dispatch(self, op: str, path: PathSpec,
                        **kwargs: Any) -> tuple[Any, IOResult]:
-        mount = self._registry.mount_for(path.original)
+        if op not in _NO_FOLLOW_OPS:
+            followed = self._namespace.follow(path.virtual)
+            if followed != path.virtual:
+                path = PathSpec.from_str_path(followed)
+        mount = self._namespace.mount_for(path.virtual)
         assert_mount_allowed(mount.prefix)
-        cacheable = mount.resource.is_remote is True
+        caches_reads = mount.resource.caches_reads
 
-        if cacheable and op in _DISPATCH_READ_OPS:
-            cached = await self._cache.get(path.original)
+        if caches_reads and op in _DISPATCH_READ_OPS:
+            cached = await self._cache.get(path.virtual)
             if cached is not None:
                 if self._consistency == ConsistencyPolicy.ALWAYS:
                     try:
                         remote_stat = await mount.execute_op(
-                            "stat", path.original)
+                            "stat", path.virtual)
                     except FileNotFoundError:
-                        await self._cache.remove(path.original)
+                        await self._cache.remove(path.virtual)
                         raise
                     if (remote_stat is not None
                             and remote_stat.fingerprint is not None):
                         fresh = await self._cache.is_fresh(
-                            path.original, remote_stat.fingerprint)
+                            path.virtual, remote_stat.fingerprint)
                         if not fresh:
-                            await self._cache.remove(path.original)
+                            await self._cache.remove(path.virtual)
                             cached = None
                 if cached is not None:
-                    return cached, IOResult(reads={path.original: cached})
+                    return cached, IOResult(reads={path.virtual: cached})
 
-        result = await mount.execute_op(op, path.original, **kwargs)
+        result = await mount.execute_op(op, path.virtual, **kwargs)
         if op in _DISPATCH_WRITE_OPS:
-            await self.invalidate_after_write(mount, path.original)
+            await self.invalidate_after_write(mount, path.virtual)
         return result, IOResult()
 
     async def stat(self, path: str) -> FileStat:
-        scope = PathSpec(original=path, directory=path, resolved=True)
+        scope = PathSpec(virtual=path,
+                         directory=path,
+                         resource_path="",
+                         resolved=True)
         result, _ = await self.dispatch("stat", scope)
         return result
 
     async def readdir(self, path: str) -> list[str]:
-        scope = PathSpec(original=path, directory=path, resolved=False)
+        scope = PathSpec(virtual=path,
+                         directory=path,
+                         resource_path="",
+                         resolved=False)
         raw, _ = await self.dispatch("readdir", scope)
         return raw
 
-    async def apply_io(self, io: IOResult) -> None:
-        await cache_io.apply_io(self._cache, io, self.is_cacheable_path)
-        if io.writes:
-            await self.invalidate_index_dirs(io)
+    async def apply_io(self,
+                       io: IOResult,
+                       records: list[OpRecord] | None = None) -> None:
+        await cache_io.apply_io(self._cache,
+                                io,
+                                self.is_cacheable_path,
+                                records=records)
 
     def is_cacheable_path(self, path: str) -> bool:
         try:
-            mount = self._registry.mount_for(path)
+            mount = self._namespace.mount_for(path)
         except ValueError:
             return False
-        return mount.resource.is_remote is True
+        return mount.resource.caches_reads
 
     async def invalidate_after_write_by_path(self, path: str) -> None:
         """Drop file-cache + stale parent index after a write to `path`.
@@ -102,7 +123,7 @@ class Dispatcher:
         Single source of truth for post-write invalidation. Called from
         both `Workspace.dispatch()` and `Ops._call(write=True)` so a
         write through any code path sees the same invalidation rules:
-        file cache is dropped only for remote-backed mounts, and the
+        file cache is dropped only for read-caching mounts, and the
         parent directory index is dirtied for any mount that maintains
         an index. No-op for paths that resolve to no known mount.
 
@@ -110,31 +131,16 @@ class Dispatcher:
             path (str): absolute mount path that was written.
         """
         try:
-            mount = self._registry.mount_for(path)
+            mount = self._namespace.mount_for(path)
         except ValueError:
             return
         await self.invalidate_after_write(mount, path)
 
-    async def invalidate_after_write(self, mount: Mount, path: str) -> None:
-        if mount.resource.is_remote is True:
-            await self._cache.remove(path)
-        idx = getattr(mount.resource, "index", None)
-        if idx is not None:
-            parent = path.rsplit("/", 1)[0] or "/"
-            await idx.invalidate_dir(parent)
-            await idx.invalidate_dir(parent + "/")
-
-    async def invalidate_index_dirs(self, io: IOResult) -> None:
-        dirs_seen: set[str] = set()
-        for path in io.writes:
-            try:
-                mount = self._registry.mount_for(path)
-            except ValueError:
-                continue
-            parent = path.rsplit("/", 1)[0] or "/"
-            if parent in dirs_seen:
-                continue
-            dirs_seen.add(parent)
-            idx = mount.resource.index
-            await idx.invalidate_dir(parent)
-            await idx.invalidate_dir(parent + "/")
+    async def invalidate_after_write(self, mount: MountEntry,
+                                     path: str) -> None:
+        manager = mount.cache_manager
+        if manager is None:
+            manager = CacheManager(self._cache,
+                                   getattr(mount.resource, "index", None),
+                                   mount.prefix, mount.resource.caches_reads)
+        await manager.invalidate_after_write(path)

@@ -15,7 +15,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Command } from 'commander'
-import { interpolateEnv, loadWorkspaceConfig } from '@struktoai/mirage-server'
+import { interpolateEnv, loadWorkspaceConfigFile } from '@struktoai/mirage-server'
 import { parse as yamlParse } from 'yaml'
 import { makeClient } from './client.ts'
 import { emit, fail, formatAge, formatTable, handleResponse } from './output.ts'
@@ -63,8 +63,8 @@ interface SessionSummary {
 }
 
 interface Internals {
-  cacheBytes: number
-  cacheEntries: number
+  cacheBytes: number | null
+  cacheEntries: number | null
   historyLength: number
   inFlightJobs: number
 }
@@ -113,7 +113,8 @@ function formatWorkspaceDetail(d: WorkspaceDetail): string {
   if (d.internals != null) {
     lines.push('', 'Internals:')
     for (const k of ['cacheBytes', 'cacheEntries', 'historyLength', 'inFlightJobs'] as const) {
-      lines.push(`  ${k.padEnd(16)} ${String(d.internals[k])}`)
+      const value = d.internals[k]
+      lines.push(`  ${k.padEnd(16)} ${value === null ? 'n/a (not tracked)' : String(value)}`)
     }
   }
   return lines.join('\n')
@@ -154,7 +155,7 @@ export function registerWorkspaceCommands(program: Command): void {
     .argument('<config>', 'YAML/JSON workspace config')
     .option('--id <id>', 'Explicit workspace id')
     .action(async (configPath: string, opts: { id?: string }) => {
-      const cfg = loadWorkspaceConfig(configPath)
+      const cfg = loadWorkspaceConfigFile(configPath)
       const body: { config: unknown; id?: string } = { config: cfg }
       if (opts.id !== undefined) body.id = opts.id
       const c = buildClient()

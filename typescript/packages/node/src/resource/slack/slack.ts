@@ -14,22 +14,24 @@
 
 import {
   BaseResource,
-  type FileStat,
   NodeSlackTransport,
   PathSpec,
-  type RegisteredCommand,
-  type RegisteredOp,
-  type Resource,
   ResourceName,
-  resolveSlackGlob,
   SLACK_COMMANDS,
   SLACK_PROMPT,
   SLACK_VFS_OPS,
   SLACK_WRITE_PROMPT,
   SlackAccessor,
+  mountKey,
+  mountPrefixOf,
+  resolveSlackGlob,
   slackRead,
   slackReaddir,
   slackStat,
+  type FileStat,
+  type RegisteredCommand,
+  type RegisteredOp,
+  type Resource,
 } from '@struktoai/mirage-core'
 import { redactSlackConfig, type SlackConfig, type SlackConfigRedacted } from './config.ts'
 
@@ -40,7 +42,7 @@ export interface SlackResourceState {
 
 export class SlackResource extends BaseResource implements Resource {
   readonly kind: string = ResourceName.SLACK
-  readonly isRemote: boolean = true
+  readonly cachesReads: boolean = true
   readonly indexTtl: number = 600
   readonly prompt: string = SLACK_PROMPT
   readonly writePrompt: string = SLACK_WRITE_PROMPT
@@ -82,7 +84,7 @@ export class SlackResource extends BaseResource implements Resource {
   }
 
   async fingerprint(p: PathSpec): Promise<string | null> {
-    const lookup = await this.index.get(p.original)
+    const lookup = await this.index.get(p.virtual)
     return lookup.entry?.remoteTime ?? null
   }
 
@@ -90,14 +92,14 @@ export class SlackResource extends BaseResource implements Resource {
     const effective =
       prefix !== ''
         ? paths.map((p) =>
-            p.prefix !== ''
+            mountPrefixOf(p.virtual, p.resourcePath) !== ''
               ? p
               : new PathSpec({
-                  original: p.original,
+                  virtual: p.virtual,
                   directory: p.directory,
                   ...(p.pattern !== null ? { pattern: p.pattern } : {}),
                   resolved: p.resolved,
-                  prefix,
+                  resourcePath: mountKey(p.virtual, prefix),
                 }),
           )
         : paths

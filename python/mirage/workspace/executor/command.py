@@ -17,6 +17,8 @@ from typing import NamedTuple
 
 from mirage.commands.builtin.find_parse import (FindParseError, find_expr_tail,
                                                 parse_find_expression)
+from mirage.commands.builtin.generic.crossmount import (handle_cross_mount,
+                                                        is_cross_mount)
 from mirage.commands.builtin.utils.safeguard import maybe_with_timeout
 from mirage.commands.safeguard import resolve_across_mounts, resolve_safeguard
 from mirage.commands.spec import (SPECS, OperandKind, flag_kwarg_name,
@@ -29,21 +31,35 @@ from mirage.shell.job_table import JobTable
 from mirage.shell.types import ERREXIT_EXEMPT_TYPES
 from mirage.types import PathSpec
 from mirage.workspace.executor.control import ReturnSignal
-from mirage.workspace.executor.cross_mount import (handle_cross_mount,
-                                                   is_cross_mount)
 from mirage.workspace.executor.fanout import (_fan_out_traversal,
                                               _should_fan_out)
 from mirage.workspace.executor.find_action_dispatch import _apply_find_actions
 from mirage.workspace.executor.fs_error import format_fs_error
 from mirage.workspace.executor.jobs import (handle_jobs, handle_kill,
                                             handle_ps, handle_wait)
-from mirage.workspace.mount import MountRegistry
+from mirage.workspace.mount import MountCommandUnsupported, MountRegistry
+from mirage.workspace.mount.namespace import Namespace
 from mirage.workspace.session import Session, assert_mount_allowed
 from mirage.workspace.types import ExecutionNode
 
 _JOB_BUILTINS = frozenset({"wait", "fg", "kill", "jobs", "ps"})
 
 _FIND_ACTION_FLAGS = frozenset({"delete", "print0", "ls"})
+
+
+async def _exec_node(cmd_str: str, io: IOResult) -> ExecutionNode:
+    """Build the recorded execution node, materializing any streamed stderr.
+
+    Args:
+        cmd_str (str): Original command text for the record.
+        io (IOResult): Command result whose stderr/exit_code the node carries.
+    """
+    # The node is a recorded artifact (compared by value, serialized via a
+    # sync to_dict, sometimes read twice), so the live lazy io.stderr is
+    # materialized to concrete bytes here. On the cross-mount path it is bytes.
+    return ExecutionNode(command=cmd_str,
+                         stderr=await materialize(io.stderr),
+                         exit_code=io.exit_code)
 
 
 def _check_mount_root_guard_raw(
@@ -69,18 +85,18 @@ def _check_mount_root_guard_raw(
         return None
 
     def _is_root(p: PathSpec) -> bool:
-        return registry.is_mount_root(p.original)
+        return registry.is_mount_root(p.virtual)
 
     if cmd_name == "rm":
         for p in paths:
             if _is_root(p):
-                msg = (f"rm: cannot remove '{p.original}': "
+                msg = (f"rm: cannot remove '{p.virtual}': "
                        f"Device or resource busy\n")
                 return msg, 1
     elif cmd_name == "mv":
         if _is_root(paths[0]):
-            dst = paths[1].original if len(paths) > 1 else "?"
-            msg = (f"mv: cannot move '{paths[0].original}' to '{dst}': "
+            dst = paths[1].virtual if len(paths) > 1 else "?"
+            msg = (f"mv: cannot move '{paths[0].virtual}' to '{dst}': "
                    f"Device or resource busy\n")
             return msg, 1
     elif cmd_name == "mkdir":
@@ -93,18 +109,18 @@ def _check_mount_root_guard_raw(
                 return None
         for p in paths:
             if _is_root(p):
-                msg = (f"mkdir: cannot create directory '{p.original}': "
+                msg = (f"mkdir: cannot create directory '{p.virtual}': "
                        f"File exists\n")
                 return msg, 1
     elif cmd_name == "touch":
         for p in paths:
             if _is_root(p):
-                msg = (f"touch: cannot touch '{p.original}': "
+                msg = (f"touch: cannot touch '{p.virtual}': "
                        f"Is a directory\n")
                 return msg, 1
     elif cmd_name == "ln":
         if _is_root(paths[-1]):
-            msg = (f"ln: failed to create link '{paths[-1].original}': "
+            msg = (f"ln: failed to create link '{paths[-1].virtual}': "
                    f"File exists\n")
             return msg, 1
     return None
@@ -139,14 +155,14 @@ def _parse_flags(
     """
     # Build string argv and PathSpec lookup
     argv = [
-        item.original if isinstance(item, PathSpec) else item for item in parts
+        item.virtual if isinstance(item, PathSpec) else item for item in parts
     ]
     scope_map: dict[str, PathSpec] = {}
     for item in parts:
         if isinstance(item, PathSpec):
-            scope_map[item.original] = item
-            stripped = item.original.rstrip("/")
-            if stripped and stripped != item.original:
+            scope_map[item.virtual] = item
+            stripped = item.virtual.rstrip("/")
+            if stripped and stripped != item.virtual:
                 scope_map[stripped] = item
 
     spec = mount.spec_for(cmd_name)
@@ -156,10 +172,20 @@ def _parse_flags(
 
         # Recover PathSpec for PATH flag values; repeatable PATH flags
         # arrive as a list of resolved paths and become list[PathSpec].
+        # A relative PATH flag value cwd-resolved by parse_command (e.g.
+        # csplit -f part -> /data/part) is absent from scope_map, so build a
+        # PathSpec for it just like positional paths do, otherwise it never
+        # gets the mount prefix stripped.
         repeat_path_keys = {
             flag_kwarg_name(name)
             for opt in spec.options
             if opt.value_kind == OperandKind.PATH and opt.repeatable
+            for name in (opt.short, opt.long) if name
+        }
+        single_path_keys = {
+            flag_kwarg_name(name)
+            for opt in spec.options
+            if opt.value_kind == OperandKind.PATH and not opt.repeatable
             for name in (opt.short, opt.long) if name
         }
         for key, value in flag_kwargs.items():
@@ -167,10 +193,18 @@ def _parse_flags(
                 flag_kwargs[key] = [
                     scope_map.get(
                         part,
-                        PathSpec(original=part,
+                        PathSpec(virtual=part,
                                  directory=part[:part.rfind("/") + 1] or "/",
+                                 resource_path="",
                                  resolved=True)) for part in value
                 ]
+            elif key in single_path_keys and isinstance(value, str):
+                flag_kwargs[key] = scope_map.get(
+                    value,
+                    PathSpec(virtual=value,
+                             directory=value[:value.rfind("/") + 1] or "/",
+                             resource_path="",
+                             resolved=True))
             elif isinstance(value, str) and value in scope_map:
                 flag_kwargs[key] = scope_map[value]
 
@@ -182,8 +216,9 @@ def _parse_flags(
                 scope = scope_map.get(value)
                 if scope is None:
                     scope = PathSpec(
-                        original=value,
+                        virtual=value,
                         directory=value[:value.rfind("/") + 1] or "/",
+                        resource_path="",
                         resolved=True,
                     )
                 paths.append(scope)
@@ -206,6 +241,7 @@ async def handle_command(
     stdin: ByteSource | None = None,
     call_stack: CallStack | None = None,
     job_table: JobTable | None = None,
+    namespace: Namespace | None = None,
 ) -> tuple[ByteSource | None, IOResult, ExecutionNode]:
     """Execute a simple command.
 
@@ -216,13 +252,13 @@ async def handle_command(
         return None, IOResult(), ExecutionNode(command="", exit_code=0)
 
     cmd_name = str(parts[0])
-    cmd_str = " ".join(p.original if isinstance(p, PathSpec) else p
+    cmd_str = " ".join(p.virtual if isinstance(p, PathSpec) else p
                        for p in parts)
 
     # Job builtins
     if cmd_name in _JOB_BUILTINS and job_table is not None:
         text_parts = [
-            p.original if isinstance(p, PathSpec) else p for p in parts
+            p.virtual if isinstance(p, PathSpec) else p for p in parts
         ]
         if cmd_name in ("wait", "fg"):
             return await handle_wait(job_table, text_parts)
@@ -238,7 +274,7 @@ async def handle_command(
         func_body = session.functions[cmd_name]
         cs = call_stack or CallStack()
         text_args = [
-            p.original if isinstance(p, PathSpec) else p for p in parts[1:]
+            p.virtual if isinstance(p, PathSpec) else p for p in parts[1:]
         ]
         cs.push(text_args, function_name=cmd_name)
         saved_locals: dict[str, str | None] = {}
@@ -276,13 +312,7 @@ async def handle_command(
     # Cross-mount: paths span different mounts (e.g. cp /ram/a /disk/b).
     # Use dispatch to read/write across mounts directly.
     path_scopes = [p for p in parts[1:] if isinstance(p, PathSpec)]
-    text_only = [
-        p.original if isinstance(p, PathSpec) else p for p in parts[1:]
-    ]
-
-    raw_argv = [
-        p.original if isinstance(p, PathSpec) else p for p in parts[1:]
-    ]
+    raw_argv = [p.virtual if isinstance(p, PathSpec) else p for p in parts[1:]]
     early_guard = _check_mount_root_guard_raw(cmd_name, path_scopes, registry,
                                               raw_argv)
     if early_guard is not None:
@@ -307,33 +337,32 @@ async def handle_command(
                                       stderr=msg.encode())
 
     if is_cross_mount(cmd_name, path_scopes, registry):
-        flag_kwargs = {}
         # Cross-mount execution bypasses a resource command handler. Parse
-        # against the shared spec so flags do not depend on the source mount.
-        command_spec = SPECS.get(cmd_name)
-        if command_spec is not None:
-            parsed = parse_command(command_spec, raw_argv, cwd=session.cwd)
-            flag_kwargs = parse_to_kwargs(parsed)
-        stdout, io, exec_node = await handle_cross_mount(
-            cmd_name, path_scopes, text_only, flag_kwargs, dispatch, cmd_str)
+        # against the shared spec so flags and text operands do not depend on
+        # the source mount.
+        parsed = parse_command(SPECS[cmd_name], raw_argv, cwd=session.cwd)
+        stdout, io = await handle_cross_mount(cmd_name, path_scopes,
+                                              parsed.texts(),
+                                              parse_to_kwargs(parsed),
+                                              dispatch)
         if io.safeguard is None:
             mounts = []
             for s in path_scopes:
                 try:
-                    mounts.append(registry.mount_for(s.original))
+                    mounts.append(registry.mount_for(s.virtual))
                 except ValueError:
                     pass
             io.safeguard = (resolve_across_mounts(cmd_name, mounts)
                             if mounts else resolve_safeguard(cmd_name))
         stdout = maybe_with_timeout(stdout, io.safeguard, cmd_name)
-        return stdout, io, exec_node
+        return stdout, io, await _exec_node(cmd_str, io)
 
     # Reject unsupported cross-mount commands
     if len(path_scopes) >= 2:
         mount_prefixes = set()
         for s in path_scopes:
             try:
-                mount_prefixes.add(registry.mount_for(s.original).prefix)
+                mount_prefixes.add(registry.mount_for(s.virtual).prefix)
             except ValueError:
                 pass
         if len(mount_prefixes) > 1:
@@ -345,7 +374,15 @@ async def handle_command(
                 stderr=err.encode(),
             ), ExecutionNode(command=cmd_str, exit_code=1)
 
-    mount = await registry.resolve_mount(cmd_name, path_scopes, session.cwd)
+    try:
+        mount = await registry.resolve_mount(cmd_name, path_scopes,
+                                             session.cwd)
+    except MountCommandUnsupported as exc:
+        err = f"{exc}\n".encode()
+        return None, IOResult(exit_code=1,
+                              stderr=err), ExecutionNode(command=cmd_str,
+                                                         exit_code=1,
+                                                         stderr=err)
     if mount is None:
         return None, IOResult(
             exit_code=127,
@@ -355,7 +392,7 @@ async def handle_command(
     try:
         assert_mount_allowed(mount.prefix)
         for ps in path_scopes:
-            target = registry.mount_for(ps.original)
+            target = registry.mount_for(ps.virtual)
             assert_mount_allowed(target.prefix)
     except PermissionError as exc:
         err = f"{exc}\n".encode()
@@ -408,7 +445,7 @@ async def handle_command(
         )
     except (FileNotFoundError, NotADirectoryError, IsADirectoryError,
             FileExistsError, PermissionError) as exc:
-        err = format_fs_error(cmd_name, exc)
+        err = format_fs_error(cmd_name, exc, paths)
         return None, IOResult(exit_code=1,
                               stderr=err), ExecutionNode(command=cmd_str,
                                                          exit_code=1,
@@ -417,6 +454,9 @@ async def handle_command(
     if cmd_name == "ls" and io.exit_code == 0:
         stdout = await _inject_child_mounts(stdout, registry, paths,
                                             flag_kwargs, session.cwd)
+        if namespace is not None and namespace.symlinks:
+            stdout = await _inject_links(stdout, namespace, paths, flag_kwargs,
+                                         session.cwd)
 
     if cmd_name == "find":
         stdout, action_err = await _apply_find_actions(stdout, flag_kwargs,
@@ -428,7 +468,7 @@ async def handle_command(
                 io.exit_code = 1
 
     prefix = mount.prefix.rstrip("/")
-    if prefix and mount is not registry.default_mount:
+    if prefix:
         io.reads = {prefix + k: v for k, v in io.reads.items()}
         io.writes = {prefix + k: v for k, v in io.writes.items()}
         io.cache = [prefix + p for p in io.cache]
@@ -441,11 +481,61 @@ async def handle_command(
     stdout = maybe_with_timeout(stdout, io.safeguard, cmd_name)
     io.stderr = maybe_with_timeout(io.stderr, io.safeguard, cmd_name)
 
-    stderr_bytes = await materialize(io.stderr)
-    exec_node = ExecutionNode(command=cmd_str,
-                              stderr=stderr_bytes,
-                              exit_code=io.exit_code)
-    return stdout, io, exec_node
+    return stdout, io, await _exec_node(cmd_str, io)
+
+
+async def _inject_links(
+    stdout: ByteSource | None,
+    namespace: Namespace,
+    paths: list[PathSpec],
+    flag_kwargs: dict,
+    cwd: str,
+) -> ByteSource | None:
+    """Append symlink entries living under the listed directory.
+
+    Links are namespace state, invisible to backend readdir, so ``ls``
+    surfaces them the same way child mounts are surfaced. Long form
+    renders GNU-style ``name -> target``.
+
+    Args:
+        stdout (ByteSource | None): backend ls output.
+        namespace (Namespace): addressing authority holding the link table.
+        paths (list[PathSpec]): positional ls operands.
+        flag_kwargs (dict): parsed ls flags.
+        cwd (str): current working directory fallback operand.
+    """
+    if flag_kwargs.get("d") is True or flag_kwargs.get("R") is True:
+        return stdout
+    if len(paths) > 1:
+        return stdout
+    listed = paths[0].virtual if paths else cwd
+    links = namespace.links_under(listed)
+    if not links:
+        return stdout
+
+    existing_bytes = await materialize(stdout) if stdout is not None else b""
+    existing = existing_bytes.decode("utf-8")
+    long_form = flag_kwargs.get("args_l") is True
+    classify = flag_kwargs.get("F") is True
+    present: set[str] = set()
+    for line in existing.split("\n"):
+        if line == "":
+            continue
+        name = line.split("\t")[-1] if long_form else line.rstrip("/*@|=")
+        if name:
+            present.add(name)
+    extras: list[str] = []
+    for name in sorted(links):
+        if name in present:
+            continue
+        if long_form:
+            extras.append(f"l\t-\t-\t{name} -> {links[name]}")
+        else:
+            extras.append(f"{name}@" if classify else name)
+    if not extras:
+        return stdout
+    sep = "" if existing == "" or existing.endswith("\n") else "\n"
+    return (existing + sep + "\n".join(extras) + "\n").encode("utf-8")
 
 
 async def _inject_child_mounts(
@@ -459,7 +549,7 @@ async def _inject_child_mounts(
         return stdout
     if len(paths) > 1:
         return stdout
-    listed = paths[0].original if paths else cwd
+    listed = paths[0].virtual if paths else cwd
     include_hidden = (flag_kwargs.get("a") is True
                       or flag_kwargs.get("A") is True)
     child_names = registry.child_mount_names(listed, include_hidden)

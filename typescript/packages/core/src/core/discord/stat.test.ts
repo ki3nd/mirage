@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../utils/key_prefix.ts'
 import { describe, expect, it } from 'vitest'
 import { DiscordAccessor } from '../../accessor/discord.ts'
 import { IndexEntry } from '../../cache/index/config.ts'
@@ -29,8 +30,8 @@ class FakeDiscordTransport implements DiscordTransport {
   }
 }
 
-function spec(original: string, prefix = ''): PathSpec {
-  return new PathSpec({ original, directory: original, prefix })
+function spec(virtual: string, prefix = ''): PathSpec {
+  return new PathSpec({ virtual, directory: virtual, resourcePath: mountKey(virtual, prefix) })
 }
 
 describe('stat virtual root', () => {
@@ -118,7 +119,7 @@ describe('stat channel dir', () => {
           name: 'general',
           resourceType: 'discord/channel',
           vfsName: 'general__C1',
-          remoteTime: '0',
+          remoteTime: '794354201395200000',
         }),
       ],
     ])
@@ -131,6 +132,7 @@ describe('stat channel dir', () => {
     expect(out.type).toBe(FileType.DIRECTORY)
     expect(out.name).toBe('general__C1')
     expect(out.extra.channel_id).toBe('C1')
+    expect(out.modified).toBe('2021-01-01T00:00:00Z')
   })
 
   it('throws ENOENT for channel dir without index', async () => {

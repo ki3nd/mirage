@@ -15,6 +15,7 @@
 import type { DatabricksVolumeAccessor } from '../../accessor/databricks_volume.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { FileType, type PathSpec } from '../../types.ts'
+import { invalidateAfterUnlink } from '../../cache/context.ts'
 import { dbxFetch } from './_client.ts'
 import { ensurePathSpec } from './_helpers.ts'
 import { isNotFound, notADirectoryError, notEmptyError, notFoundError } from './errors.ts'
@@ -30,23 +31,24 @@ export async function rmdir(
   const p = ensurePathSpec(path)
   const fileStat = await stat(accessor, p, index)
   if (fileStat.type !== FileType.DIRECTORY) {
-    throw notADirectoryError(p.original)
+    throw notADirectoryError(p.virtual)
   }
   const remotePath = backendPath(accessor.config, p)
   let entries
   try {
     entries = await listDirectoryContents(accessor, remotePath)
   } catch (exc) {
-    if (isNotFound(exc)) throw notFoundError(p.original)
+    if (isNotFound(exc)) throw notFoundError(p.virtual)
     throw exc
   }
   if (entries.length > 0) {
-    throw notEmptyError(p.original)
+    throw notEmptyError(p.virtual)
   }
   try {
     await dbxFetch(accessor, 'DELETE', 'directories', remotePath)
   } catch (exc) {
-    if (isNotFound(exc)) throw notFoundError(p.original)
+    if (isNotFound(exc)) throw notFoundError(p.virtual)
     throw exc
   }
+  await invalidateAfterUnlink(p)
 }

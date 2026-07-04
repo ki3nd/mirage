@@ -17,12 +17,13 @@ import { applyIo } from '../cache/file/io.ts'
 import type { FileCache } from '../cache/file/mixin.ts'
 import { IOResult } from '../io/types.ts'
 import { runWithRevisions } from '../observe/context.ts'
+import type { OpRecord } from '../observe/record.ts'
 import type { OpsRegistry } from '../ops/registry.ts'
 import { type OpKwargs } from '../ops/registry.ts'
-import type { Resource } from '../resource/base.ts'
-import { ConsistencyPolicy, MountMode, type PathSpec } from '../types.ts'
+import { cachesReads, type Resource } from '../resource/base.ts'
+import { ConsistencyPolicy, MountMode, PathSpec } from '../types.ts'
 import type { DispatchFn } from './executor/cross_mount.ts'
-import type { MountRegistry } from './mount/registry.ts'
+import type { Namespace } from './mount/namespace.ts'
 
 const NOOP_ACCESSOR_INSTANCE = new NOOPAccessor()
 const DISPATCH_READ_OPS = new Set(['read', 'read_bytes'])
@@ -34,35 +35,41 @@ const DISPATCH_WRITE_OPS = new Set([
   'create',
   'truncate',
 ])
+// Ops that act on the path entry itself (lstat semantics); every other op
+// follows symlinks before mount lookup, so reads/writes go to the target
+// and the cache keys under the real path.
+const NO_FOLLOW_OPS = new Set(['unlink', 'rename', 'rmdir'])
 
 export type ResolveFn = (path: string) => Promise<[Resource, PathSpec, MountMode]>
 
 export class Dispatcher {
-  private readonly registry: MountRegistry
+  private readonly namespace: Namespace
   private readonly cache: FileCache & Resource
   private readonly opsRegistry: OpsRegistry
-  private readonly resolveFn: ResolveFn
   private readonly consistency: ConsistencyPolicy
 
   constructor(
-    registry: MountRegistry,
+    namespace: Namespace,
     cache: FileCache & Resource,
     opsRegistry: OpsRegistry,
-    resolveFn: ResolveFn,
     consistency: ConsistencyPolicy = ConsistencyPolicy.LAZY,
   ) {
-    this.registry = registry
+    this.namespace = namespace
     this.cache = cache
     this.opsRegistry = opsRegistry
-    this.resolveFn = resolveFn
     this.consistency = consistency
   }
 
   dispatch: DispatchFn = async (opName, path, args, kwargs) => {
-    const [resource, scope, mode] = await this.resolveFn(path.original)
-    const cacheable = resource.isRemote === true
-    if (cacheable && DISPATCH_READ_OPS.has(opName)) {
-      let cached = await this.cache.get(path.original)
+    let p = path
+    if (!NO_FOLLOW_OPS.has(opName)) {
+      const followed = this.namespace.follow(path.virtual)
+      if (followed !== path.virtual) p = PathSpec.fromStrPath(followed)
+    }
+    const [resource, scope, mode] = await this.namespace.resolve(p.virtual, false)
+    const caches = cachesReads(resource)
+    if (caches && DISPATCH_READ_OPS.has(opName)) {
+      let cached = await this.cache.get(p.virtual)
       if (
         cached !== null &&
         this.consistency === ConsistencyPolicy.ALWAYS &&
@@ -74,23 +81,23 @@ export class Dispatcher {
         } catch {
           remoteFp = null
         }
-        if (remoteFp !== null && !(await this.cache.isFresh(path.original, remoteFp))) {
-          await this.cache.remove(path.original)
+        if (remoteFp !== null && !(await this.cache.isFresh(p.virtual, remoteFp))) {
+          await this.cache.remove(p.virtual)
           cached = null
         }
       }
       if (cached !== null) {
-        return [cached, new IOResult({ reads: { [path.original]: cached } })]
+        return [cached, new IOResult({ reads: { [p.virtual]: cached } })]
       }
     }
     if (mode === MountMode.READ && this.opsRegistry.find(opName, resource.kind)?.write === true) {
-      throw new Error(`mount at '${path.original}' is read-only`)
+      throw new Error(`mount at '${p.virtual}' is read-only`)
     }
     const fullKwargs: OpKwargs =
       kwargs?.index === undefined && resource.index !== undefined
         ? { ...(kwargs ?? {}), index: resource.index }
         : (kwargs ?? {})
-    const mount = this.registry.mountFor(path.original)
+    const mount = this.namespace.mountFor(p.virtual)
     const result = await runWithRevisions(
       mount !== null && mount.revisions.size > 0 ? mount.revisions : null,
       async () =>
@@ -104,15 +111,15 @@ export class Dispatcher {
         ),
     )
     if (DISPATCH_WRITE_OPS.has(opName)) {
-      await this.invalidateAfterWriteByPath(path.original)
+      await this.invalidateAfterWriteByPath(p.virtual)
     }
     return [result, new IOResult()]
   }
 
   async invalidateAfterWriteByPath(path: string): Promise<void> {
-    const mount = this.registry.mountFor(path)
+    const mount = this.namespace.mountFor(path)
     if (mount === null) return
-    if (mount.resource.isRemote === true) {
+    if (cachesReads(mount.resource)) {
       await this.cache.remove(path)
     }
     const idx = mount.resource.index
@@ -124,27 +131,16 @@ export class Dispatcher {
     }
   }
 
-  async applyIo(io: IOResult): Promise<void> {
-    await applyIo(this.cache, io)
-    if (Object.keys(io.writes).length > 0) {
-      await this.invalidateIndexDirs(io)
-    }
+  // The file cache only holds paths for read-caching mounts, mirroring
+  // Python's is_cacheable_path gate; without it every backend's reads
+  // land in the cache and provision reports phantom cache hits.
+  isCacheablePath = (path: string): boolean => {
+    const mount = this.namespace.mountFor(path)
+    if (mount === null) return false
+    return cachesReads(mount.resource)
   }
 
-  async invalidateIndexDirs(io: IOResult): Promise<void> {
-    const dirsSeen = new Set<string>()
-    for (const path of Object.keys(io.writes)) {
-      const mount = this.registry.mountFor(path)
-      if (mount === null) continue
-      const slash = path.lastIndexOf('/')
-      const parent = slash <= 0 ? '/' : path.slice(0, slash)
-      if (dirsSeen.has(parent)) continue
-      dirsSeen.add(parent)
-      const idx = mount.resource.index
-      if (idx !== undefined) {
-        await idx.invalidateDir(parent)
-        await idx.invalidateDir(parent + '/')
-      }
-    }
+  async applyIo(io: IOResult, records?: readonly OpRecord[]): Promise<void> {
+    await applyIo(this.cache, io, this.isCacheablePath, records)
   }
 }

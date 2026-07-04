@@ -39,6 +39,10 @@ export class RAMFileCacheStore extends RAMResource implements FileCache {
     return this.size
   }
 
+  get cacheEntries(): number {
+    return this.entries.size
+  }
+
   get cacheLimit(): number {
     return this.limit
   }
@@ -138,7 +142,7 @@ export class RAMFileCacheStore extends RAMResource implements FileCache {
   }
 
   exists(key: string | PathSpec): Promise<boolean> {
-    const k = typeof key === 'string' ? key : key.stripPrefix
+    const k = typeof key === 'string' ? key : key.mountPath
     const entry = this.entries.get(k)
     return Promise.resolve(entry !== undefined && !entry.expired)
   }

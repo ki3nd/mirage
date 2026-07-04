@@ -43,6 +43,10 @@ async def main() -> None:
     result = await ws.execute("ls /linear/teams/")
     print(await result.stdout_str())
 
+    print("=== ls -l /linear/teams/ (mtime from updatedAt) ===")
+    long_result = await ws.execute("ls -l /linear/teams/")
+    print(await long_result.stdout_str())
+
     first_team = (await result.stdout_str()).strip().splitlines()[0] if (
         await result.stdout_str()).strip() else ""
     if not first_team:
@@ -133,6 +137,15 @@ async def main() -> None:
     result = await ws.execute(
         f'find /linear/teams/{first_team}/issues/ -name "*.json"'
         " | head -n 5")
+    print(await result.stdout_str())
+
+    print("=== find teams -type d (directory filter) ===")
+    result = await ws.execute(f"find /linear/teams/{first_team}/ -type d"
+                              " | head -n 5")
+    print(await result.stdout_str())
+
+    print(f"=== du -s teams/{first_team} (walk fallback) ===")
+    result = await ws.execute(f"du -s /linear/teams/{first_team}/")
     print(await result.stdout_str())
 
     print("=== grep Mirage issue.json ===")

@@ -19,6 +19,7 @@ from mirage.core.github._client import github_get
 from mirage.core.github.config import GitHubConfig
 from mirage.core.github.scope import scope_relative_key
 from mirage.types import PathSpec
+from mirage.utils.key_prefix import mount_key, mount_prefix_of
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ async def narrow_paths(
         leading slash and the original mount prefix. Empty when search
         returned nothing.
     """
-    mount_prefix = (paths[0].prefix
+    mount_prefix = (mount_prefix_of(paths[0].virtual, paths[0].resource_path)
                     if paths and isinstance(paths[0], PathSpec) else "")
     narrowed: list[str] = []
     for p in paths:
@@ -85,10 +86,14 @@ async def narrow_paths(
                 "github code search failed (%s); "
                 "falling back to per-file scan", exc)
             continue
-        narrowed.extend(r.path for r in results)
+        scope_prefix = path_filter + "/" if path_filter else ""
+        narrowed.extend(
+            r.path for r in results
+            if r.path == path_filter or r.path.startswith(scope_prefix))
     return [
-        PathSpec(original=mount_prefix + "/" + n.lstrip("/"),
+        PathSpec(virtual=mount_prefix + "/" + n.lstrip("/"),
                  directory="",
-                 prefix=mount_prefix,
+                 resource_path=mount_key(mount_prefix + "/" + n.lstrip("/"),
+                                         mount_prefix),
                  resolved=True) for n in narrowed
     ]

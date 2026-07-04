@@ -12,12 +12,12 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '../../utils/key_prefix.ts'
 import type { GmailAccessor } from '../../accessor/gmail.ts'
 import type { IndexCacheStore } from '../../cache/index/store.ts'
 import { PathSpec } from '../../types.ts'
 import { getAttachment, getMessageProcessed } from './messages.ts'
 import { readdir } from './readdir.ts'
-import { stripSlash } from '../../utils/slash.ts'
 import { gnuDirname } from '../../utils/path.ts'
 import { enoent } from '../../utils/errors.ts'
 
@@ -34,17 +34,15 @@ export async function read(
   path: PathSpec,
   index?: IndexCacheStore,
 ): Promise<Uint8Array> {
-  const prefix = path.prefix
-  let p = path.original
-  if (prefix !== '' && p.startsWith(prefix)) p = p.slice(prefix.length) || '/'
-  const key = stripSlash(p)
-  if (index === undefined) throw enoent(path.original)
+  const prefix = mountPrefixOf(path.virtual, path.resourcePath)
+  const key = path.resourcePath
+  if (index === undefined) throw enoent(path.virtual)
   const virtualKey = prefix !== '' ? `${prefix}/${key}` : `/${key}`
   let result = await index.get(virtualKey)
   if (result.entry === undefined || result.entry === null) {
     const parentKey = gnuDirname(virtualKey)
     if (parentKey !== virtualKey) {
-      const parentPath = PathSpec.fromStrPath(parentKey, prefix)
+      const parentPath = PathSpec.fromStrPath(parentKey, mountKey(parentKey, prefix))
       try {
         await readdir(accessor, parentPath, index)
         result = await index.get(virtualKey)
@@ -52,17 +50,17 @@ export async function read(
         // parent refresh failed; fall through to ENOENT
       }
     }
-    if (result.entry === undefined || result.entry === null) throw enoent(path.original)
+    if (result.entry === undefined || result.entry === null) throw enoent(path.virtual)
   }
   const rt = result.entry.resourceType
   if (rt === 'gmail/label' || rt === 'gmail/date' || rt === 'gmail/attachment_dir') {
-    throw eisdir(path.original)
+    throw eisdir(path.virtual)
   }
   if (rt === 'gmail/attachment') {
     const parentKey = gnuDirname(virtualKey)
     const parentResult = await index.get(parentKey)
     if (parentResult.entry === undefined || parentResult.entry === null) {
-      throw enoent(path.original)
+      throw enoent(path.virtual)
     }
     return getAttachment(accessor.tokenManager, parentResult.entry.id, result.entry.id)
   }

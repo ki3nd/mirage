@@ -26,7 +26,7 @@ def config():
 
 def test_resource_init(config):
     resource = DiscordResource(config)
-    assert resource.is_remote is True
+    assert resource.caches_reads is True
 
 
 def test_resource_name(config):
@@ -43,5 +43,6 @@ def test_resource_accessor(config):
 
 def test_resource_commands(config):
     resource = DiscordResource(config)
-    # 18 native + 9 filetype cmds x 7 columnar exts
-    assert len(resource._commands) == 18 + 9 * 7
+    # 49 native (generic factory read set + bespoke find/grep/rg/head +
+    # discord_* writers) + 9 filetype cmds x 7 columnar exts
+    assert len(resource._commands) == 49 + 9 * 7

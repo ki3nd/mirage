@@ -43,19 +43,24 @@ async def accessor():
 
 @pytest.mark.asyncio
 async def test_du_root(accessor):
-    total = await du(accessor, PathSpec(original="/", directory="/"))
+    total = await du(accessor,
+                     PathSpec(resource_path="", virtual="/", directory="/"))
     assert total == 5 + 6 + 4
 
 
 @pytest.mark.asyncio
 async def test_du_subdir(accessor):
-    total = await du(accessor, PathSpec(original="/sub", directory="/sub"))
+    total = await du(
+        accessor,
+        PathSpec(resource_path="sub", virtual="/sub", directory="/sub"))
     assert total == 6 + 4
 
 
 @pytest.mark.asyncio
 async def test_du_single_file(accessor):
-    total = await du(accessor, PathSpec(original="/a.txt", directory="/a.txt"))
+    total = await du(
+        accessor,
+        PathSpec(resource_path="a.txt", virtual="/a.txt", directory="/a.txt"))
     assert total == 5
 
 
@@ -65,7 +70,7 @@ async def test_du_empty():
     await s.clear()
     await s.add_dir("/")
     a = RedisAccessor(s)
-    total = await du(a, PathSpec(original="/", directory="/"))
+    total = await du(a, PathSpec(resource_path="", virtual="/", directory="/"))
     assert total == 0
     await s.clear()
     await s.close()
@@ -73,8 +78,8 @@ async def test_du_empty():
 
 @pytest.mark.asyncio
 async def test_du_all_root(accessor):
-    entries, total = await du_all(accessor,
-                                  PathSpec(original="/", directory="/"))
+    entries, total = await du_all(
+        accessor, PathSpec(resource_path="", virtual="/", directory="/"))
     assert total == 15
     paths = [e[0] for e in entries]
     assert "/a.txt" in paths
@@ -84,7 +89,8 @@ async def test_du_all_root(accessor):
 
 @pytest.mark.asyncio
 async def test_du_all_subdir(accessor):
-    entries, total = await du_all(accessor,
-                                  PathSpec(original="/sub", directory="/sub"))
+    entries, total = await du_all(
+        accessor,
+        PathSpec(resource_path="sub", virtual="/sub", directory="/sub"))
     assert total == 10
     assert len(entries) == 2

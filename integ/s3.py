@@ -15,21 +15,33 @@
 import asyncio
 import logging
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aiobotocore.client
 import boto3
-from cases import run_not_found
+import moto.s3.models as _s3_models
+from cases import (run_cache_verify_cases, run_not_found,
+                   run_provision_cache_cases)
 from moto.server import ThreadedMotoServer
 
 from mirage import MountMode, Workspace
 from mirage.accessor.s3 import S3Accessor
 from mirage.commands import safeguard as _safeguard
+from mirage.commands.builtin.generic_bind import make_file_read_provision
+from mirage.commands.config import command
+from mirage.commands.spec import SPECS
+from mirage.core.s3.stat import stat as _s3_stat
 from mirage.resource.gcs import GCSConfig, GCSResource
 from mirage.resource.minio import MinIOConfig, MinIOResource
 from mirage.resource.s3 import S3Config, S3Resource
 from mirage.resource.seaweedfs import SeaweedFSConfig, SeaweedFSResource
 from mirage.types import CommandSafeguard, ConsistencyPolicy
+
+# Freeze the timestamp moto stamps onto every object so LastModified (and thus
+# the `ls -l` mtime column resolved from the index) is deterministic.
+_FROZEN_MTIME = datetime(2026, 3, 31, 12, 0, 0, tzinfo=timezone.utc)
+_s3_models.utcnow = lambda: _FROZEN_MTIME
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 SEED_OBJECTS = [
@@ -134,6 +146,19 @@ STREAMING_CASES: list[tuple[str, str]] = [
     ("cat_wc_full", "cat {m}/data/example.jsonl | wc -l"),
 ]
 
+# Warm-read serving: a cat warms the file cache for the object, then each
+# read-only command reads the same object and is served entirely from cache,
+# pulling zero backend bytes. cat goes through the generic read-through and
+# grep/head/tail/wc through the shared consumers; a regression that stopped
+# serving warm reads would re-fetch the object and bytes would jump above 0.
+WARM_SERVE_CASES: list[tuple[str, str]] = [
+    ("warm_cat", "cat {m}/data/example.jsonl"),
+    ("warm_grep", "grep mirage {m}/data/example.jsonl"),
+    ("warm_head", "head -n 1 {m}/data/example.jsonl"),
+    ("warm_tail", "tail -n 1 {m}/data/example.jsonl"),
+    ("warm_wc", "wc -l {m}/data/example.jsonl"),
+]
+
 # Index fast-path accounting: run from a fresh workspace (empty index) and
 # count backend API calls. readdir populates the index, so per-entry stat
 # issues zero HeadObject calls. GetObject reads are dropped from the report so
@@ -233,8 +258,6 @@ async def _run_exit(ws: Workspace, name: str, cmd: str) -> None:
 def _set_cat_safeguard(ws: Workspace, max_lines: int) -> None:
     sg = CommandSafeguard(max_lines=max_lines)
     mounts = list(ws._registry._mounts)
-    if ws._registry.default_mount is not None:
-        mounts.append(ws._registry.default_mount)
     for m in mounts:
         m.command_safeguards["cat"] = sg
 
@@ -249,6 +272,16 @@ async def _measure(ws: Workspace, name: str, cmd: str) -> None:
     first = lines[0][:48] if lines else ""
     print(f"=== {name} ===")
     print(f"bytes={net} lines={len(lines)} out0={first!r}")
+
+
+async def _warm_serve(endpoint: str, name: str, mount: str, cmd: str) -> None:
+    ws = _build_workspace(endpoint)
+    await (await ws.execute(f"cat {mount}/data/example.jsonl")).stdout_str()
+    before = sum(rec.bytes for rec in ws.ops.records)
+    await (await ws.execute(cmd)).stdout_str()
+    net = sum(rec.bytes for rec in ws.ops.records) - before
+    print(f"=== {name} ===")
+    print(f"bytes={net} served_from_cache={net == 0}")
 
 
 async def _measure_calls(endpoint: str, name: str, cmd: str) -> None:
@@ -284,6 +317,70 @@ async def _run_consistency(endpoint: str) -> None:
         print(second, end="" if second.endswith("\n") else "\n")
 
 
+# In-band coherence: under LAZY (which never revalidates on its own), each
+# mutation done through a mirage command must invalidate the parent listing at
+# the write site, so a previously cached `ls` reflects it. cp -> core copy and
+# rm -r -> core rm_r: each caches the listing with ls, mutates in-band, then
+# lists again and must see fresh state. Verified to go stale when the copy/rm
+# hook is removed; the gzip case only covers the write/unlink hooks.
+async def _run_coherence(endpoint: str) -> None:
+    s3 = S3Resource(
+        S3Config(bucket=S3_BUCKET,
+                 region="us-east-1",
+                 endpoint_url=endpoint,
+                 aws_access_key_id="testing",
+                 aws_secret_access_key="testing",
+                 path_style=True))
+    ws = Workspace({"/s3/": s3},
+                   mode=MountMode.WRITE,
+                   consistency=ConsistencyPolicy.LAZY)
+    await ws.execute("mkdir -p /s3/coh"
+                     " && echo one | tee /s3/coh/a.txt > /dev/null")
+    await _run(ws, "coherence:seed_ls", "ls /s3/coh")
+    await ws.execute("cp /s3/coh/a.txt /s3/coh/b.txt")
+    await _run(ws, "coherence:after_cp_ls", "ls /s3/coh")
+    await ws.execute("mkdir -p /s3/coh/sub"
+                     " && echo z | tee /s3/coh/sub/z.txt > /dev/null")
+    await _run(ws, "coherence:after_mkdir_ls", "ls /s3/coh")
+    await ws.execute("rm -r /s3/coh/sub")
+    await _run(ws, "coherence:after_rmr_ls", "ls /s3/coh")
+
+
+S3_GET_PER_1K_USD = 0.0004
+S3_EGRESS_PER_GB_USD = 0.09
+
+
+def _price_wrap(original):
+
+    async def priced(accessor, paths, *texts, **kwargs):
+        result = await original(accessor, paths, *texts, **kwargs)
+        egress = result.network_read_high * S3_EGRESS_PER_GB_USD / 1e9
+        requests = result.read_ops * S3_GET_PER_1K_USD / 1000
+        result.estimated_cost_usd = egress + requests
+        return result
+
+    return priced
+
+
+_PRICED_CAT_BASE: dict = {}
+
+
+@command("cat",
+         resource="s3",
+         spec=SPECS["cat"],
+         provision=_price_wrap(make_file_read_provision(_s3_stat)))
+async def _priced_cat(accessor, paths, *texts, **kwargs):
+    return await _PRICED_CAT_BASE["fn"](accessor, paths, *texts, **kwargs)
+
+
+def _price_cat(ws: Workspace, mount_path: str) -> None:
+    mount = ws.mount(mount_path)
+    base = mount.resolve_command("cat", None)
+    assert base is not None and base.provision_fn is not None
+    _PRICED_CAT_BASE["fn"] = base.fn
+    mount.register_fns([_priced_cat])
+
+
 async def main() -> None:
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
     server = ThreadedMotoServer(ip_address="127.0.0.1", port=0, verbose=False)
@@ -307,6 +404,11 @@ async def main() -> None:
                                tmpl.format(m=mount))
         for mount in MOUNTS:
             tag = mount.lstrip("/")
+            for name, tmpl in WARM_SERVE_CASES:
+                await _warm_serve(endpoint, f"{tag}:warm:{name}", mount,
+                                  tmpl.format(m=mount))
+        for mount in MOUNTS:
+            tag = mount.lstrip("/")
             for name, tmpl in INDEX_CASES:
                 await _measure_calls(endpoint, f"{tag}:calls:{name}",
                                      tmpl.format(m=mount))
@@ -326,7 +428,55 @@ async def main() -> None:
             else:
                 _safeguard.DEFAULT_COMMAND_SAFEGUARDS["sleep"] = prev_sleep
         await run_not_found(ws, MOUNTS[0])
+        # The suite workspace is read-only; the cache-flip probe seeds its
+        # own files, so it gets a write-mode mount on the same bucket.
+        gcs_write = GCSResource(
+            GCSConfig(bucket=GCS_BUCKET,
+                      endpoint_url=endpoint,
+                      access_key_id="testing",
+                      secret_access_key="testing"))
+        gcs_write.config = gcs_write.config.model_copy(
+            update={"path_style": True})
+        gcs_write.accessor = S3Accessor(gcs_write.config)
+        ws_write = Workspace(
+            {
+                "/s3":
+                S3Resource(
+                    S3Config(bucket=S3_BUCKET,
+                             region="us-east-1",
+                             endpoint_url=endpoint,
+                             aws_access_key_id="testing",
+                             aws_secret_access_key="testing",
+                             path_style=True)),
+                "/gcs":
+                gcs_write,
+            },
+            mode=MountMode.WRITE)
+        await run_provision_cache_cases(ws_write, "/s3")
+        await run_cache_verify_cases(ws_write, "/s3", "/gcs")
+        # user cost model: wrap cat's registered estimator so bytes and
+        # request counts become estimated_cost_usd, combined by the
+        # planner like any other field
+        _price_cat(ws_write, "/s3/data")
+        await ws_write.cache.clear()
+        result = await ws_write.execute("cat /s3/data/example.jsonl",
+                                        provision=True)
+        print("=== prov_cost_cat ===")
+        print(f"net={result.network_read} ops={result.read_ops} "
+              f"cost={result.estimated_cost_usd:.10f} "
+              f"precision={result.precision.value}")
+        result = await ws_write.execute(
+            "for i in 1 2; do cat /s3/data/example.jsonl; done",
+            provision=True)
+        print("=== prov_cost_for ===")
+        print(f"net={result.network_read} "
+              f"cost={result.estimated_cost_usd:.10f}")
+        result = await ws_write.execute("cat /s3/data/example.jsonl | wc -l",
+                                        provision=True)
+        print("=== prov_cost_unpriced_stage ===")
+        print(f"cost={result.estimated_cost_usd}")
         await _run_consistency(endpoint)
+        await _run_coherence(endpoint)
     finally:
         server.stop()
 

@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountPrefixOf } from '../../../utils/key_prefix.ts'
 import type { DiscordAccessor } from '../../../accessor/discord.ts'
 import type { IndexCacheStore } from '../../../cache/index/store.ts'
 import { DiscordApiError } from '../../../core/discord/_client.ts'
@@ -52,7 +53,7 @@ async function grepCommand(
 
   const pushdownWarnings: string[] = []
   const firstPath = paths[0]
-  if (firstPath !== undefined && pattern !== null) {
+  if (firstPath !== undefined && pattern !== null && !pattern.includes('\n')) {
     const scope = detectScope(firstPath)
     if (scope.useNative && scope.guildId !== undefined) {
       try {
@@ -64,7 +65,12 @@ async function grepCommand(
             if (ch.name !== undefined) channelMap.set(ch.id, ch.name)
           }
         }
-        const lines = formatGrepResults(raw, scope, firstPath.prefix, channelMap)
+        const lines = formatGrepResults(
+          raw,
+          scope,
+          mountPrefixOf(firstPath.virtual, firstPath.resourcePath),
+          channelMap,
+        )
         if (lines.length === 0) return [new Uint8Array(0), new IOResult({ exitCode: 1 })]
         return [ENC.encode(lines.join('\n') + '\n'), new IOResult()]
       } catch (err) {

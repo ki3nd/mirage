@@ -12,7 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { record, ResourceName, type PathSpec } from '@struktoai/mirage-core'
+import { ResourceName, invalidateAfterWrite, record, type PathSpec } from '@struktoai/mirage-core'
 import type { RedisAccessor } from '../../accessor/redis.ts'
 import { norm, nowIso } from './utils.ts'
 
@@ -22,7 +22,7 @@ export async function appendBytes(
   data: Uint8Array,
 ): Promise<void> {
   const start = performance.now()
-  const p = norm(path.stripPrefix)
+  const p = norm(path.mountPath)
   const store = accessor.store
   const existing = await store.getFile(p)
   if (existing !== null) {
@@ -35,4 +35,5 @@ export async function appendBytes(
   }
   await store.setModified(p, nowIso())
   record('append', p, ResourceName.REDIS, data.byteLength, start)
+  await invalidateAfterWrite(p)
 }

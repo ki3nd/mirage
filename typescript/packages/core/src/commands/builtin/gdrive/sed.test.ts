@@ -80,7 +80,13 @@ describe('gdrive sed', () => {
     if (cmd === undefined) throw new Error('sed not registered')
     const result = await cmd.fn(
       makeAccessor() as never,
-      [new PathSpec({ original: '/test/file.txt', directory: '/test' })],
+      [
+        new PathSpec({
+          resourcePath: 'test/file.txt',
+          virtual: '/test/file.txt',
+          directory: '/test',
+        }),
+      ],
       ['s/hello/bye/g'],
       makeOpts({ index }),
     )
@@ -95,7 +101,13 @@ describe('gdrive sed', () => {
     if (cmd === undefined) throw new Error('sed not registered')
     const result = await cmd.fn(
       makeAccessor() as never,
-      [new PathSpec({ original: '/test/file.txt', directory: '/test' })],
+      [
+        new PathSpec({
+          resourcePath: 'test/file.txt',
+          virtual: '/test/file.txt',
+          directory: '/test',
+        }),
+      ],
       ['2p'],
       makeOpts({ flags: { n: true }, index }),
     )
@@ -121,7 +133,13 @@ describe('gdrive sed', () => {
     if (cmd === undefined) throw new Error('sed not registered')
     const result = await cmd.fn(
       makeAccessor() as never,
-      [new PathSpec({ original: '/test/file.txt', directory: '/test' })],
+      [
+        new PathSpec({
+          resourcePath: 'test/file.txt',
+          virtual: '/test/file.txt',
+          directory: '/test',
+        }),
+      ],
       ['s/a/b/'],
       makeOpts({ flags: { i: true }, index }),
     )

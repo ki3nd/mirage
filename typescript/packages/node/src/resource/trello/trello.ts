@@ -14,23 +14,25 @@
 
 import {
   BaseResource,
-  type FileStat,
   HttpTrelloTransport,
   PathSpec,
-  type RegisteredCommand,
-  type RegisteredOp,
-  type Resource,
   ResourceName,
-  resolveTrelloGlob,
   TRELLO_COMMANDS,
   TRELLO_PROMPT,
   TRELLO_VFS_OPS,
   TRELLO_WRITE_PROMPT,
   TrelloAccessor,
-  type TrelloReaddirFilter,
+  mountKey,
+  mountPrefixOf,
+  resolveTrelloGlob,
   trelloRead,
   trelloReaddir,
   trelloStat,
+  type FileStat,
+  type RegisteredCommand,
+  type RegisteredOp,
+  type Resource,
+  type TrelloReaddirFilter,
 } from '@struktoai/mirage-core'
 import { redactTrelloConfig, type TrelloConfig, type TrelloConfigRedacted } from './config.ts'
 
@@ -41,7 +43,7 @@ export interface TrelloResourceState {
 
 export class TrelloResource extends BaseResource implements Resource {
   readonly kind: string = ResourceName.TRELLO
-  readonly isRemote: boolean = true
+  readonly cachesReads: boolean = true
   readonly indexTtl: number = 600
   readonly prompt: string = TRELLO_PROMPT
   readonly writePrompt: string = TRELLO_WRITE_PROMPT
@@ -95,7 +97,7 @@ export class TrelloResource extends BaseResource implements Resource {
   }
 
   async fingerprint(p: PathSpec): Promise<string | null> {
-    const lookup = await this.index.get(p.original)
+    const lookup = await this.index.get(p.virtual)
     return lookup.entry?.remoteTime ?? null
   }
 
@@ -103,14 +105,14 @@ export class TrelloResource extends BaseResource implements Resource {
     const effective =
       prefix !== ''
         ? paths.map((p) =>
-            p.prefix !== ''
+            mountPrefixOf(p.virtual, p.resourcePath) !== ''
               ? p
               : new PathSpec({
-                  original: p.original,
+                  virtual: p.virtual,
                   directory: p.directory,
                   ...(p.pattern !== null ? { pattern: p.pattern } : {}),
                   resolved: p.resolved,
-                  prefix,
+                  resourcePath: mountKey(p.virtual, prefix),
                 }),
           )
         : paths

@@ -55,12 +55,38 @@ probe() {
   echo "subshell.export_after=$($cli execute -w pw -c 'echo [$FOO]' </dev/null | sout)"
   echo "subshell.false_exit=$($cli execute -w pw -c '(false)' </dev/null | sexit)"
   echo "subshell.pipe=$($cli execute -w pw -c '(echo a; echo b) | wc -l' </dev/null | sout)"
+  echo "subshell.oldpwd_no_leak=$($cli execute -w pw -c '(cd /data && (cd /) && echo $OLDPWD)' </dev/null | sout)"
+  echo "subshell.func_redef=$($cli execute -w pw -c '(f(){ echo A; }; (f(){ echo B; }); f)' </dev/null | sout)"
+  echo "subshell.func_no_leak=$($cli execute -w pw -c '(nofn(){ echo x; }); nofn 2>/dev/null || echo gone' </dev/null | sout)"
+  echo "subshell.positional=$($cli execute -w pw -c '(set -- a b c; (set -- x); echo $#)' </dev/null | sout)"
+
+  # ── cwd/env: HOME, PWD, OLDPWD, cd -, tilde (GNU cd + pwd) ──
+  $cli execute -w pw -c 'echo hi > /data/f.txt' </dev/null >/dev/null
+  echo "cwd.home_default=$($cli execute -w pw -c 'echo $HOME' </dev/null | sout)"
+  echo "cwd.pwd_var=$($cli execute -w pw -c '(cd /data && echo $PWD)' </dev/null | sout)"
+  echo "cwd.oldpwd=$($cli execute -w pw -c '(cd /data && cd / && echo $OLDPWD)' </dev/null | sout)"
+  echo "cwd.cd_dash=$($cli execute -w pw -c '(cd /data && cd / && cd -)' </dev/null | sout)"
+  echo "cwd.tilde_pwd=$($cli execute -w pw -c '(export HOME=/data && cd ~ && pwd)' </dev/null | sout)"
+  echo "cwd.tilde_cat=$($cli execute -w pw -c '(export HOME=/data && cat ~/f.txt)' </dev/null | sout)"
+  echo "cwd.rel_cat=$($cli execute -w pw -c '(cd /data && cat f.txt)' </dev/null | sout)"
+  echo "cwd.wc_disp=$($cli execute -w pw -c '(cd /data && wc -l f.txt)' </dev/null | sout)"
 
   # ── sessions: default session persists cwd; -s session is isolated ──
   $cli session create pw --id s2 </dev/null >/dev/null
   $cli execute -w pw -c 'cd /data' </dev/null >/dev/null
   echo "session.default_pwd=$($cli execute -w pw -c 'pwd' </dev/null | sout)"
   echo "session.s2_pwd=$($cli execute -w pw -s s2 -c 'pwd' </dev/null | sout)"
+
+  # ── symlinks: namespace links follow on read; rm/mv act on the entry ──
+  $cli execute -w pw -c 'echo sym1 > /data/s.txt && ln -s /data/s.txt /data/link.txt' </dev/null >/dev/null
+  echo "sym.readlink=$($cli execute -w pw -c 'readlink /data/link.txt' </dev/null | sout)"
+  echo "sym.cat_follow=$($cli execute -w pw -c 'cat /data/link.txt' </dev/null | sout)"
+  echo "sym.write_through=$($cli execute -w pw -c 'echo via >> /data/link.txt && tail -n 1 /data/s.txt' </dev/null | sout)"
+  echo "sym.ls_arrow=$($cli execute -w pw -c 'ls -l /data | grep -- "->"' </dev/null | sout)"
+  echo "sym.mv_entry=$($cli execute -w pw -c 'mv /data/link.txt /data/moved.txt && readlink /data/moved.txt' </dev/null | sout)"
+  echo "sym.rm_entry=$($cli execute -w pw -c 'rm /data/moved.txt; readlink /data/moved.txt' </dev/null | sexit)"
+  echo "sym.dangle=$($cli execute -w pw -c 'ln -s /data/none /data/d.txt; cat /data/d.txt' </dev/null | sexit)"
+  echo "sym.eloop=$($cli execute -w pw -c 'ln -s /data/l2 /data/l1 && ln -s /data/l1 /data/l2; cat /data/l1 2>&1' </dev/null | sout)"
 
   $cli workspace delete pw >/dev/null 2>&1 </dev/null || true
 
@@ -141,6 +167,18 @@ expect "subshell.export_inner" "bar"
 expect "subshell.export_after" "[]"
 expect "subshell.false_exit" "1"
 expect "subshell.pipe" "2"
+expect "subshell.oldpwd_no_leak" "/"
+expect "subshell.func_redef" "A"
+expect "subshell.func_no_leak" "gone"
+expect "subshell.positional" "3"
+expect "cwd.home_default" ""
+expect "cwd.pwd_var" "/data"
+expect "cwd.oldpwd" "/data"
+expect "cwd.cd_dash" "/data"
+expect "cwd.tilde_pwd" "/data"
+expect "cwd.tilde_cat" "hi"
+expect "cwd.rel_cat" "hi"
+expect "cwd.wc_disp" "1 f.txt"
 expect "session.default_pwd" "/data"
 expect "session.s2_pwd" "/"
 expect "version.log" "second,first"
@@ -152,6 +190,14 @@ expect "clone.at_first" "one"
 expect "version.checkout_first" "one"
 expect 'version.diff' '{"added":[],"modified":["a.txt"],"deleted":[]}'
 expect "fuse.operates" "alive"
+expect "sym.readlink" "/data/s.txt"
+expect "sym.cat_follow" "sym1"
+expect "sym.write_through" "via"
+expect "sym.ls_arrow" "$(printf 'l\t-\t-\tlink.txt -> /data/s.txt')"
+expect "sym.mv_entry" "/data/s.txt"
+expect "sym.rm_entry" "1"
+expect "sym.dangle" "1"
+expect "sym.eloop" "cat: /data/l1: Too many levels of symbolic links"
 
 if [ "$fail" != "0" ]; then
   echo

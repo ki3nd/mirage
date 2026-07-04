@@ -19,7 +19,7 @@ import {
   MountMode,
   Workspace,
 } from "@struktoai/mirage-node";
-import { runNotFound } from "./cases.ts";
+import { runNotFound, runProvisionProbe } from "./cases.ts";
 
 const MONGODB_URI = process.env.MONGODB_URI ?? "mongodb://localhost:27017";
 const DB = "mirage_integ";
@@ -60,9 +60,11 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
   ["grep_c_title", `grep -c title ${MOUNT}/${DB}/collections/books/documents.jsonl`],
   ["grep_ada", `grep ada ${MOUNT}/${DB}/collections/books/documents.jsonl`],
   ["grep_e_multi", `grep -n -e ada -e ben ${MOUNT}/${DB}/collections/books/documents.jsonl`],
+  ["grep_r_e_multi", `grep -r -e alpha -e beta ${MOUNT}/${DB}/collections/books`],
   ["grep_db_scope", `grep ada ${MOUNT}/${DB}/`],
   ["grep_root_scope", `grep ada ${MOUNT}/`],
   ["rg_db_scope", `rg ben ${MOUNT}/${DB}/`],
+  ["rg_e_multi", `rg -e gamma -e cara ${MOUNT}/${DB}/collections/books`],
   ["find_docs", `find ${MOUNT}/${DB}/ -name documents.jsonl`],
   ["find_schema", `find ${MOUNT}/${DB}/ -name schema.json`],
   ["jq_titles", `jq '.title' ${MOUNT}/${DB}/collections/books/documents.jsonl`],
@@ -71,6 +73,12 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
   ["wc_l_view", `wc -l ${MOUNT}/${DB}/views/recent_books/documents.jsonl`],
   ["safeguard_cat_truncates", `cat ${MOUNT}/${DB}/collections/books/documents.jsonl`],
   ["safeguard_cat_pipe_uncapped", `cat ${MOUNT}/${DB}/collections/books/documents.jsonl | wc -l`],
+  // symlink to the database meta file (namespace state; read-only backend)
+  ["sym_ln", `ln -s ${MOUNT}/${DB}/database.json ${MOUNT}/meta_link`],
+  ["sym_readlink", `readlink ${MOUNT}/meta_link`],
+  ["sym_cat", `cat ${MOUNT}/meta_link`],
+  ["sym_ls", `ls -F ${MOUNT} | grep meta_link`],
+  ["sym_rm", `rm ${MOUNT}/meta_link && ls ${MOUNT}`],
 ];
 
 async function seed(client: MongoClient): Promise<void> {
@@ -99,12 +107,46 @@ async function run(ws: Workspace, name: string, cmd: string): Promise<void> {
   }
 }
 
+async function insertUntilDone(
+  client: MongoClient,
+  done: () => boolean,
+): Promise<void> {
+  let i = 0;
+  while (!done()) {
+    i += 1;
+    await client
+      .db(DB)
+      .collection("books")
+      .insertOne({ _id: 100 + i, title: "live_insert" });
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+async function runFollow(ws: Workspace, client: MongoClient): Promise<void> {
+  const name = "tail_f_change_stream";
+  const cmd = `tail -f ${MOUNT}/${DB}/collections/books/documents.jsonl | head -n 1`;
+  let finished = false;
+  const followP = ws.execute(cmd).then((result) => {
+    finished = true;
+    return DEC.decode(result.stdout);
+  });
+  const inserter = insertUntilDone(client, () => finished);
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("tail -f change stream timed out")), 30000),
+  );
+  try {
+    const out = await Promise.race([followP, timeout]);
+    process.stdout.write(`=== ${name} ===\n`);
+    process.stdout.write(out.endsWith("\n") ? out : out + "\n");
+  } finally {
+    finished = true;
+    await inserter;
+  }
+}
+
 function setCatSafeguard(ws: Workspace, maxLines: number): void {
   const sg = new CommandSafeguard({ maxLines });
   for (const m of ws.registry.allMounts()) m.commandSafeguards.set("cat", sg);
-  if (ws.registry.defaultMount !== null) {
-    ws.registry.defaultMount.commandSafeguards.set("cat", sg);
-  }
 }
 
 async function main(): Promise<void> {
@@ -123,6 +165,17 @@ async function main(): Promise<void> {
       await run(ws, name, cmd);
     }
     await runNotFound(ws, MOUNT);
+    await runProvisionProbe(
+      ws,
+      `${MOUNT}/${DB}/collections/books/documents.jsonl`,
+    );
+    const liveClient = new MongoClient(MONGODB_URI);
+    await liveClient.connect();
+    try {
+      await runFollow(ws, liveClient);
+    } finally {
+      await liveClient.close();
+    }
   } finally {
     await ws.close();
     await resource.close();

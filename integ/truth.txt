@@ -32,6 +32,7 @@ hello
 world
 === head_c5 ===
 hello
+\ No newline at end of output
 === tail_default ===
 hello
 world
@@ -250,19 +251,25 @@ a.txt
 /data/a.txt
 === find_name ===
 /data/a.txt
+/data/anchors.txt
 /data/b.txt
 /data/c.txt
+/data/disptree/d/y.txt
+/data/disptree/x.txt
 /data/dup.txt
 /data/empty.txt
 /data/fields.txt
 /data/guard/g.txt
 /data/guard/sub/s.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -276,23 +283,30 @@ a.txt
 === find_type_f ===
 /data/a.txt
 /data/abc.csv
+/data/anchors.txt
 /data/b.txt
 /data/binary.bin
 /data/c.txt
 /data/chat.jsonl
 /data/csv.csv
 /data/data.jsonl
+/data/disptree/d/y.txt
+/data/disptree/x.txt
 /data/dup.txt
 /data/empty.txt
 /data/fields.txt
 /data/guard/g.txt
 /data/guard/sub/s.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.diff
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -308,22 +322,28 @@ a.txt
 === ls ===
 a.txt
 abc.csv
+anchors.txt
 b.txt
 binary.bin
 c.txt
 chat.jsonl
 csv.csv
 data.jsonl
+disptree
 dup.txt
 empty.txt
 fields.txt
 guard
 mixed.txt
+multi.txt
 no_nl.txt
 numbers.txt
 one_byte.txt
+oooo.txt
 patterns.txt
 patterns2.txt
+poem.diff
+poem.txt
 prefix_dup.txt
 repeats.txt
 sections.txt
@@ -338,22 +358,28 @@ users.json
 === ls_1 ===
 a.txt
 abc.csv
+anchors.txt
 b.txt
 binary.bin
 c.txt
 chat.jsonl
 csv.csv
 data.jsonl
+disptree
 dup.txt
 empty.txt
 fields.txt
 guard
 mixed.txt
+multi.txt
 no_nl.txt
 numbers.txt
 one_byte.txt
+oooo.txt
 patterns.txt
 patterns2.txt
+poem.diff
+poem.txt
 prefix_dup.txt
 repeats.txt
 sections.txt
@@ -365,6 +391,33 @@ sub
 tabbed.txt
 user.json
 users.json
+=== ls_file ===
+a.txt
+=== ls_glob ===
+a.txt
+anchors.txt
+b.txt
+c.txt
+dup.txt
+empty.txt
+fields.txt
+mixed.txt
+multi.txt
+no_nl.txt
+numbers.txt
+one_byte.txt
+oooo.txt
+patterns.txt
+patterns2.txt
+poem.txt
+prefix_dup.txt
+repeats.txt
+sections.txt
+sorted_a.txt
+sorted_b.txt
+sorted_c.txt
+spaced.txt
+tabbed.txt
 === expand ===
 a       1
 b       2
@@ -448,23 +501,30 @@ baz
 === find_mindepth ===
 /data/a.txt
 /data/abc.csv
+/data/anchors.txt
 /data/b.txt
 /data/binary.bin
 /data/c.txt
 /data/chat.jsonl
 /data/csv.csv
 /data/data.jsonl
+/data/disptree/d/y.txt
+/data/disptree/x.txt
 /data/dup.txt
 /data/empty.txt
 /data/fields.txt
 /data/guard/g.txt
 /data/guard/sub/s.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.diff
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -480,6 +540,7 @@ baz
 === find_maxdepth ===
 /data/a.txt
 /data/abc.csv
+/data/anchors.txt
 /data/b.txt
 /data/binary.bin
 /data/c.txt
@@ -490,11 +551,15 @@ baz
 /data/empty.txt
 /data/fields.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.diff
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -507,19 +572,25 @@ baz
 /data/users.json
 === find_multi_name ===
 /data/a.txt
+/data/anchors.txt
 /data/b.txt
 /data/c.txt
+/data/disptree/d/y.txt
+/data/disptree/x.txt
 /data/dup.txt
 /data/empty.txt
 /data/fields.txt
 /data/guard/g.txt
 /data/guard/sub/s.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -578,7 +649,7 @@ world
       2 b
       1 c
 === find_pipe_wc ===
-24
+30
 === jq_pipe_wc ===
 3
 === cat_tr_sort ===
@@ -603,7 +674,7 @@ world
 3
 === find_sort_head ===
 /data/a.txt
-/data/b.txt
+/data/anchors.txt
 === cat_empty ===
 
 === wc_empty ===
@@ -616,6 +687,7 @@ d41d8cd98f00b204e9800998ecf8427e  /data/empty.txt
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /data/empty.txt
 === cat_no_nl ===
 no trailing newline
+\ No newline at end of output
 === wc_no_nl ===
  0  3 19 /data/no_nl.txt
 === md5_one_byte ===
@@ -652,25 +724,34 @@ world
 === rg_c ===
 1
 === find_d ===
+/data
+/data/disptree
+/data/disptree/d
 /data/guard
 /data/guard/sub
 /data/sub
 /data/sub/deep
 === find_iname ===
 /data/a.txt
+/data/anchors.txt
 /data/b.txt
 /data/c.txt
+/data/disptree/d/y.txt
+/data/disptree/x.txt
 /data/dup.txt
 /data/empty.txt
 /data/fields.txt
 /data/guard/g.txt
 /data/guard/sub/s.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -682,13 +763,18 @@ world
 /data/sub/nested.txt
 /data/tabbed.txt
 === find_size_gt ===
+/data
 /data/a.txt
 /data/abc.csv
+/data/anchors.txt
 /data/binary.bin
 /data/c.txt
 /data/chat.jsonl
 /data/csv.csv
 /data/data.jsonl
+/data/disptree
+/data/disptree/d
+/data/disptree/x.txt
 /data/dup.txt
 /data/fields.txt
 /data/guard
@@ -696,7 +782,10 @@ world
 /data/mixed.txt
 /data/no_nl.txt
 /data/numbers.txt
+/data/oooo.txt
 /data/patterns.txt
+/data/poem.diff
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -712,19 +801,25 @@ world
 /data/users.json
 === find_recurse ===
 /data/a.txt
+/data/anchors.txt
 /data/b.txt
 /data/c.txt
+/data/disptree/d/y.txt
+/data/disptree/x.txt
 /data/dup.txt
 /data/empty.txt
 /data/fields.txt
 /data/guard/g.txt
 /data/guard/sub/s.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -843,9 +938,9 @@ foo
 === sed_print_only ===
 world
 === sed_replace_n ===
-hellO
+hello
 world
-foo
+foO
 bar
 baz
 === sed_delete_pattern ===
@@ -856,11 +951,223 @@ baz
 === sed_append ===
 hello
 world
-
 INSERTED
 foo
 bar
 baz
+=== sed_anchor_sub ===
+#TS
+ls
+#TS
+foo bar
+=== sed_anchor_sub_E ===
+#TS
+ls
+#TS
+foo bar
+=== sed_anchor_sub_g ===
+#TS
+ls
+#TS
+foo bar
+=== sed_anchor_addr_del ===
+ls
+foo bar
+=== sed_anchor_sub_file ===
+#TS
+ls
+#TS
+foo bar
+=== sed_firstmatch_file ===
+Oo
+Oo
+Oo
+=== sed_count_nth ===
+oOoo
+oOoo
+=== sed_count_nth_g ===
+oOOO
+oOOO
+=== sed_sub_p ===
+Oooo
+Oooo
+=== sed_y ===
+hippo
+=== sed_c_addr ===
+hello
+CHANGED
+foo
+bar
+baz
+=== sed_c_range ===
+hello
+MID
+baz
+=== sed_bre_group ===
+[foo]
+=== sed_bre_plus ===
+Xb
+=== sed_bre_alt ===
+PET
+=== sed_ere_group ===
+[foo]
+=== sed_ere_plus ===
+Xb
+=== sed_r_alias ===
+Xb
+=== sed_multi_e ===
+c
+=== sed_e_file ===
+hello
+EARTH
+foo
+bar
+baz
+=== sed_f_file ===
+hello
+EARTH
+foo
+bar
+baz
+=== sed_f_multi ===
+hello
+EARTH
+FOO
+bar
+baz
+=== sed_ef_combined ===
+hello
+EARTH
+FOO
+bar
+baz
+=== sed_f_stdin ===
+hello
+EARTH
+foo
+bar
+baz
+=== sed_amp ===
+hello
+[world]
+foo
+bar
+baz
+=== sed_amp_literal ===
+hello
+[&]
+foo
+bar
+baz
+=== sed_sub_i ===
+HI World
+HI world
+HI WORLD
+=== sed_delim_pipe ===
+hellO
+wOrld
+fOO
+bar
+baz
+=== sed_d_range ===
+hello
+bar
+baz
+=== sed_n_2p ===
+world
+=== sed_n_lastp ===
+baz
+=== sed_insert ===
+hello
+INSERTED
+world
+foo
+bar
+baz
+=== sed_change_all ===
+X
+X
+X
+X
+X
+=== sed_change_regex ===
+hello
+CHANGED
+foo
+bar
+baz
+=== sed_quit ===
+hello
+world
+=== sed_double_space ===
+hello
+
+world
+
+foo
+
+bar
+
+baz
+
+=== sed_n_join ===
+hello world
+foo bar
+baz
+=== sed_block ===
+hello
+X
+foo
+bar
+baz
+=== sed_semicolon ===
+hell0
+w0rld
+f0o
+bAr
+bAz
+=== sed_backref_E ===
+1section
+body1
+2section
+body2
+3section
+body3
+=== sed_neg_line ===
+world
+=== sed_neg_regex ===
+world
+=== sed_neg_lastp ===
+hello
+world
+foo
+bar
+=== sed_neg_range ===
+hello
+world
+foo
+Xar
+Xaz
+=== sed_join_all ===
+hello,world,foo,bar,baz
+=== sed_hold_accum ===
+
+hello
+world
+foo
+bar
+baz
+=== sed_escaped_delim ===
+c
+=== sed_no_final_nl ===
+NO trailing newline
+\ No newline at end of output
+=== case_multi_arm ===
+one
+two
+=== case_multi_arm_default ===
+fall
+through
 === tr_squeeze ===
 abc
 === tr_complement ===
@@ -1025,18 +1332,38 @@ baz,
 === find_empty ===
 /data/empty.txt
 === find_not_name ===
+/data
 /data/abc.csv
 /data/binary.bin
 /data/chat.jsonl
 /data/csv.csv
 /data/data.jsonl
+/data/disptree
+/data/disptree/d
 /data/guard
 /data/guard/sub
+/data/poem.diff
 /data/sub
 /data/sub/deep
 /data/user.json
 /data/users.json
+=== find_name_start ===
+/data
+=== find_maxdepth_zero ===
+/data
+=== find_mindepth_zero ===
+/data
+/data/disptree
+/data/disptree/d
+/data/guard
+/data/guard/sub
+/data/sub
+/data/sub/deep
 === find_size_lt ===
+/data
+/data/disptree
+/data/disptree/d
+/data/disptree/d/y.txt
 /data/empty.txt
 /data/guard
 /data/guard/sub
@@ -1048,23 +1375,30 @@ baz,
 === find_depth ===
 /data/a.txt
 /data/abc.csv
+/data/anchors.txt
 /data/b.txt
 /data/binary.bin
 /data/c.txt
 /data/chat.jsonl
 /data/csv.csv
 /data/data.jsonl
+/data/disptree/d/y.txt
+/data/disptree/x.txt
 /data/dup.txt
 /data/empty.txt
 /data/fields.txt
 /data/guard/g.txt
 /data/guard/sub/s.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.diff
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -1078,14 +1412,20 @@ baz,
 /data/user.json
 /data/users.json
 === find_mtime ===
+/data
 /data/a.txt
 /data/abc.csv
+/data/anchors.txt
 /data/b.txt
 /data/binary.bin
 /data/c.txt
 /data/chat.jsonl
 /data/csv.csv
 /data/data.jsonl
+/data/disptree
+/data/disptree/d
+/data/disptree/d/y.txt
+/data/disptree/x.txt
 /data/dup.txt
 /data/empty.txt
 /data/fields.txt
@@ -1094,11 +1434,15 @@ baz,
 /data/guard/sub
 /data/guard/sub/s.txt
 /data/mixed.txt
+/data/multi.txt
 /data/no_nl.txt
 /data/numbers.txt
 /data/one_byte.txt
+/data/oooo.txt
 /data/patterns.txt
 /data/patterns2.txt
+/data/poem.diff
+/data/poem.txt
 /data/prefix_dup.txt
 /data/repeats.txt
 /data/sections.txt
@@ -1143,6 +1487,19 @@ baz,
 -cherry
 +date
 +elder
+=== diff_recursive ===
+diff -r /data/dr/x/a.txt /data/dr/y/a.txt
+1c1
+< aaa
+---
+> AAA
+Only in /data/dr/x: leftonly.txt
+Only in /data/dr/y: rightonly.txt
+diff -r /data/dr/x/sub/d.txt /data/dr/y/sub/d.txt
+1c1
+< deep1
+---
+> deep2
 === cmp_same ===
 
 === cmp_differ ===
@@ -1150,7 +1507,7 @@ baz,
 === du_file ===
 24	/data/a.txt
 === du_dir ===
-628	/data
+881	/data
 === du_h ===
 24B	/data/a.txt
 === tree ===
@@ -1322,6 +1679,7 @@ c
 olleh
 === base64_stdin_d ===
 hello
+\ No newline at end of output
 === cp_multi_into_dir ===
 
 === cp_multi_verify_a ===
@@ -1402,12 +1760,138 @@ atroot
 at_root.txt
 === root_create_dirname ===
 /data
+=== cwd_pwd_root ===
+/
+=== cwd_cd_mount_pwd ===
+/data
+=== cwd_cd_subdir_pwd ===
+/data/sub
+=== cwd_cd_dotdot_pwd ===
+/data
+=== cwd_rel_cat ===
+hello
+world
+foo
+bar
+baz
+=== cwd_rel_dot_cat ===
+hello
+world
+foo
+bar
+baz
+=== cwd_rel_subdir_cat ===
+nested
+content
+=== cwd_rel_dotdot_cat ===
+hello
+world
+foo
+bar
+baz
+=== cwd_rel_csplit ===
+nested
+content
+=== cwd_echo_pwd ===
+/data/sub
+=== cwd_echo_home_unset ===
+[]
+=== cwd_cd_oldpwd ===
+/data
+=== cwd_cd_dash ===
+/data
+=== cwd_cd_dash_pwd ===
+/data
+=== cwd_home_cd_tilde ===
+/data
+=== cwd_home_echo ===
+/data
+=== cwd_tilde_cat ===
+hello
+world
+foo
+bar
+baz
+=== cwd_tilde_subdir_cat ===
+nested
+content
+=== cwd_cd_double_slash ===
+/data
+=== cwd_cd_phys_flag ===
+/data/sub
+=== cwd_cd_log_flag ===
+/data
+=== cwd_cd_dashdash ===
+/data
+=== cwd_cd_cdpath ===
+/data/sub
+/data/sub
+=== subshell_var_isolated ===
+1
+=== subshell_var_inherit ===
+7
+=== subshell_export_isolated ===
+[]
+=== subshell_func_redef ===
+A
+=== subshell_func_no_leak ===
+gone
+=== subshell_positional_isolated ===
+3
+=== subshell_positional_inherit ===
+a b
+=== subshell_cd_no_leak ===
+/
+=== subshell_nested_cd ===
+/data
+=== disp_wc_rel ===
+5 a.txt
+=== disp_wc_multi ===
+5 a.txt
+3 b.txt
+8 total
+=== disp_wc_dotslash ===
+5 ./a.txt
+=== disp_wc_dotdot ===
+5 ../a.txt
+=== disp_grep_multi ===
+a.txt:world
+=== disp_md5_rel ===
+191c53e00627438f88824862472a3f59  a.txt
+=== disp_stat_name ===
+a.txt
+=== disp_find_subdir ===
+sub/nested.txt
+=== disp_head_multi ===
+==> a.txt <==
+hello
+
+==> b.txt <==
+1
+=== disp_grep_files ===
+a.txt
+=== disp_grep_r ===
+disptree/x.txt:nested
+=== disp_rg_r ===
+disptree/x.txt:nested
+=== disp_ls_recursive ===
+disptree:
+d
+x.txt
+
+disptree/d:
+y.txt
+=== disp_find_root ===
+disptree
+disptree/d
+disptree/d/y.txt
+disptree/x.txt
 === history_last_two ===
-375  basename /data/at_root.txt
-376  dirname /data/at_root.txt
+491  (cd /data && ls -R disptree)
+492  (cd /data && find disptree)
 === bash_history_tail ===
-basename /data/at_root.txt
-dirname /data/at_root.txt
+(cd /data && ls -R disptree)
+(cd /data && find disptree)
 history 2
 === history_find_view ===
 /.bash_history
@@ -1420,6 +1904,37 @@ find /.bash_history -type d
 find /.bash_history -type d
 #TS
 grep -v '^#' /.bash_history | tail -n 1
+=== arch_gzip_interleaved_ls ===
+h.txt.gz
+two
+h.txt
+=== patch_apply ===
+roses are red
+violets are dark
+sugar is sweet
+=== patch_n_noop ===
+roses are red
+violets are dark
+sugar is sweet
+=== patch_reverse ===
+roses are red
+violets are blue
+sugar is sweet
+=== cwd_cd_too_many ===
+exit=1
+cd: too many arguments
+=== cwd_cd_bad_opt ===
+exit=2
+cd: -x: invalid option
+cd: usage: cd [-L|[-P [-e]] [-@]] [dir]
+=== cwd_cd_home_unset ===
+exit=1
+cd: HOME not set
+=== cwd_cd_quoted_tilde ===
+exit=1
+cd: /data/~: No such file or directory
+=== sed_count_zero ===
+exit=1
 === jq_no_filter_no_input ===
 exit=0
 === jq_dot_no_input ===
@@ -1567,12 +2082,11 @@ exit=0
 exit=0
 arch.zip
 deep
-link.txt
 nested.txt
+link.txt
 === ln_read_back ===
 exit=0
-nested
-content
+/data/sub/nested.txt
 === nl_pin_du ===
 exit=0
 14
@@ -1584,7 +2098,7 @@ exit=0
 18
 === nl_pin_tree ===
 exit=0
-145
+126
 === nl_pin_ls ===
 exit=0
 34
@@ -1630,6 +2144,45 @@ exit=1
 exit=1
 === sleep_infinity ===
 exit=1
+=== sym_setup ===
+exit=0
+=== sym_ln ===
+exit=0
+=== sym_cat_follow ===
+exit=0
+alpha
+=== sym_grep_follow ===
+exit=0
+alpha
+=== sym_write_through ===
+exit=0
+beta
+=== sym_ls_f ===
+exit=0
+t.txt
+l.txt@
+=== sym_ls_long_arrow ===
+exit=0
+l	-	-	l.txt -> /data/symd/t.txt
+=== sym_dirlink_read ===
+exit=0
+beta
+=== sym_mv_rename ===
+exit=0
+/data/symd/t.txt
+=== sym_cp_follow ===
+exit=0
+beta
+=== sym_rm_link ===
+exit=1
+=== sym_dangle_cat ===
+exit=1
+cat: /data/symd/dangle: No such file or directory
+=== sym_eloop_cat ===
+exit=1
+cat: /data/lp1: Too many levels of symbolic links
+=== sym_cleanup ===
+exit=0
 === nf_cat ===
 exit=1
 cat: /data/missing.txt: No such file or directory
@@ -1654,6 +2207,15 @@ cat: /data/sub/missing.txt: No such file or directory
 === nf_cat_pipe ===
 exit=0
 cat: /data/missing.txt: No such file or directory
+=== nf_cat_rel ===
+exit=1
+cat: missing.txt: No such file or directory
+=== nf_cat_rel_subdir ===
+exit=1
+cat: sub/missing.txt: No such file or directory
+=== nf_grep_r_rel ===
+exit=1
+grep: missing: No such file or directory
 === find_bad_maxdepth ===
 exit=1
 find: invalid argument 'abc' to '-maxdepth'
@@ -1669,9 +2231,203 @@ find: invalid argument '' to '-size'
 === find_bad_mtime ===
 exit=1
 find: invalid argument 'abc' to '-mtime'
+=== find_unknown_predicate ===
+exit=1
+find: unknown predicate '-regex'
+=== find_bogus_predicate ===
+exit=1
+find: unknown predicate '-boguspredicate'
 === sleep_zero ===
 sleep_zero ok
 === sleep_fraction ===
 sleep_fraction ok
 === sleep_one ===
 sleep_one ok
+=== xm_seed ===
+cross
+=== xm_ls ===
+xm.txt
+=== xm_cat_concat ===
+hello
+world
+foo
+bar
+baz
+cross
+=== xm_cp_over ===
+hello
+world
+foo
+bar
+baz
+=== xm_cp_back ===
+cross
+=== xm_mv_over ===
+cross
+xm.txt
+xm_copy.txt
+xm_moved.txt
+=== xm_grep_multi ===
+/data/a.txt:0
+/data2/xm.txt:1
+=== xm_wc_multi ===
+5 /data/a.txt
+1 /data2/xm.txt
+6 total
+=== xm_du_multi_rejected ===
+du: paths span multiple mounts (/data/, /data2/), cross-mount not supported
+=== xm_find ===
+/data2/xm.txt
+/data2/xm_copy.txt
+/data2/xm_moved.txt
+=== xm_pipe ===
+CROSS
+=== xm_ln_over ===
+hello
+world
+foo
+bar
+baz
+=== xm_ln_readlink ===
+/data/a.txt
+=== xm_ln_back ===
+cross
+=== xm_link_grep ===
+1
+=== xm_cd_across ===
+cross
+b.txt
+=== prov_cat ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_cat_multi ===
+net=30 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_wc ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_sort ===
+net=12 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_md5 ===
+net=6 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_grep ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_grep_multi ===
+net=60 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_rg ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_head ===
+net=0-24 write=0 cache=0 ops=1 hits=0 precision=range
+=== prov_head_c ===
+net=5 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_tail ===
+net=0-24 write=0 cache=0 ops=1 hits=0 precision=range
+=== prov_ls ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_find ===
+net=0 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_du ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_stat ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_jq_object ===
+net=29 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_jq_jsonl ===
+net=27 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_missing ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_sed ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_sed_inplace ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_write ===
+net=0 write=0 cache=0 ops=0 hits=0 precision=unknown
+=== prov_pipe ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_pipe_floor ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_and ===
+net=30 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_seq ===
+net=30 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_or ===
+net=6-24 write=0 cache=0 ops=1 hits=0 precision=range
+=== prov_for ===
+net=72 write=0 cache=0 ops=3 hits=0 precision=exact
+=== prov_while ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_file_cmd ===
+net=0-24 write=0 cache=0 ops=1 hits=0 precision=range
+=== prov_iconv ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_cp ===
+net=0-24 write=0-24 cache=0 ops=1 hits=0 precision=range
+=== prov_gzip ===
+net=6 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_rm ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_rm_r ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_mkdir ===
+net=0 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_mv ===
+net=0 write=0 cache=0 ops=0 hits=0 precision=unknown
+=== prov_seq ===
+net=0 write=0 cache=0 ops=0 hits=0 precision=exact
+=== prov_date ===
+net=0 write=0 cache=0 ops=0 hits=0 precision=exact
+=== prov_pipe3 ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_and_or ===
+net=12-30 write=0 cache=0 ops=1 hits=0 precision=range
+=== prov_or_and ===
+net=18-36 write=0 cache=0 ops=2 hits=0 precision=range
+=== prov_if_else ===
+net=6-24 write=0 cache=0 ops=1 hits=0 precision=range
+=== prov_if_cond_read ===
+net=24-30 write=0 cache=0 ops=1 hits=0 precision=range
+=== prov_case ===
+net=6-24 write=0 cache=0 ops=1 hits=0 precision=range
+=== prov_subshell ===
+net=30 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_brace_group ===
+net=30 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_negate ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_redirect_out ===
+net=24 write=0-24 cache=0 ops=1 hits=0 precision=range
+=== prov_or_unknown_branch ===
+net=0-24 write=0 cache=0 ops=0 hits=0 precision=unknown
+=== prov_for_pipe ===
+net=48 write=0 cache=0 ops=2 hits=0 precision=unknown
+=== prov_for_nested ===
+net=24 write=0 cache=0 ops=4 hits=0 precision=exact
+=== prov_cmdsub ===
+net=0 write=0 cache=0 ops=0 hits=0 precision=unknown
+=== prov_deep_mix ===
+net=60 write=0 cache=0 ops=4 hits=0 precision=unknown
+=== prov_env_prefix ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_func_call ===
+net=12 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_func_recursive ===
+net=0 write=0 cache=0 ops=0 hits=0 precision=unknown
+=== prov_eval ===
+net=0 write=0 cache=0 ops=0 hits=0 precision=unknown
+=== prov_select ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_until ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_redirect_in ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=unknown
+=== prov_redirect_devnull ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_symlink ===
+net=24 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_symlink_grep ===
+net=6 write=0 cache=0 ops=1 hits=0 precision=exact
+=== prov_xmount_concat ===
+net=30 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_xmount_grep ===
+net=30 write=0 cache=0 ops=2 hits=0 precision=exact
+=== prov_xmount_pipe ===
+net=30 write=0 cache=0 ops=2 hits=0 precision=unknown
+=== prov_xmount_rejected ===
+net=0 write=0 cache=0 ops=0 hits=0 precision=unknown

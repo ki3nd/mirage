@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey, mountPrefixOf } from '@struktoai/mirage-core'
 import {
   type FileStat,
   HttpTrelloTransport,
@@ -42,7 +43,7 @@ export interface TrelloResourceState {
 
 export class TrelloResource implements Resource {
   readonly kind: string = ResourceName.TRELLO
-  readonly isRemote: boolean = true
+  readonly cachesReads: boolean = true
   readonly indexTtl: number = 600
   readonly prompt: string = TRELLO_PROMPT
   readonly writePrompt: string = TRELLO_WRITE_PROMPT
@@ -97,7 +98,7 @@ export class TrelloResource implements Resource {
   }
 
   async fingerprint(p: PathSpec): Promise<string | null> {
-    const lookup = await this.index.get(p.original)
+    const lookup = await this.index.get(p.virtual)
     return lookup.entry?.remoteTime ?? null
   }
 
@@ -105,14 +106,14 @@ export class TrelloResource implements Resource {
     const effective =
       prefix !== ''
         ? paths.map((p) =>
-            p.prefix !== ''
+            mountPrefixOf(p.virtual, p.resourcePath) !== ''
               ? p
               : new PathSpec({
-                  original: p.original,
+                  virtual: p.virtual,
                   directory: p.directory,
                   ...(p.pattern !== null ? { pattern: p.pattern } : {}),
                   resolved: p.resolved,
-                  prefix,
+                  resourcePath: mountKey(p.virtual, prefix),
                 }),
           )
         : paths

@@ -15,6 +15,7 @@
 import asyncio
 
 from mirage.accessor.databricks_volume import DatabricksVolumeAccessor
+from mirage.cache.context import invalidate_after_write
 from mirage.cache.index import IndexCacheStore
 from mirage.core.databricks_volume._helpers import (ensure_path_spec,
                                                     parent_path)
@@ -45,7 +46,7 @@ async def mkdir(
         await asyncio.to_thread(_create_directory_sync, accessor, remote_path)
         return
     if await exists(accessor, path):
-        raise FileExistsError(path.original)
+        raise FileExistsError(path.virtual)
     parent = parent_path(path)
     parent_stat = await stat(accessor, parent, index)
     if parent_stat.type != FileType.DIRECTORY:
@@ -56,3 +57,4 @@ async def mkdir(
         if is_not_found(exc):
             raise enoent(path) from exc
         raise
+    await invalidate_after_write(path)

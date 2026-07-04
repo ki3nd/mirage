@@ -43,6 +43,7 @@ def index():
                 id="C001",
                 name="general",
                 resource_type="discord/channel",
+                remote_time="794354201395200000",
                 vfs_name="general",
             ),
         ))
@@ -66,7 +67,9 @@ def accessor():
 
 @pytest.mark.asyncio
 async def test_stat_root(accessor, index):
-    result = await stat(accessor, PathSpec(original="/", directory="/"), index)
+    result = await stat(accessor,
+                        PathSpec(resource_path="", virtual="/", directory="/"),
+                        index)
     assert result.type == FileType.DIRECTORY
     assert result.name == "/"
 
@@ -74,8 +77,10 @@ async def test_stat_root(accessor, index):
 @pytest.mark.asyncio
 async def test_stat_guild(accessor, index):
     result = await stat(
-        accessor, PathSpec(original="/My Server", directory="/My Server"),
-        index)
+        accessor,
+        PathSpec(resource_path="My Server",
+                 virtual="/My Server",
+                 directory="/My Server"), index)
     assert result.type == FileType.DIRECTORY
     assert result.extra["guild_id"] == "G001"
 
@@ -84,17 +89,20 @@ async def test_stat_guild(accessor, index):
 async def test_stat_channel(accessor, index):
     result = await stat(
         accessor,
-        PathSpec(original="/My Server/channels/general",
+        PathSpec(resource_path="My Server/channels/general",
+                 virtual="/My Server/channels/general",
                  directory="/My Server/channels/general"), index)
     assert result.type == FileType.DIRECTORY
     assert result.extra["channel_id"] == "C001"
+    assert result.modified == "2021-01-01T00:00:00Z"
 
 
 @pytest.mark.asyncio
 async def test_stat_member(accessor, index):
     result = await stat(
         accessor,
-        PathSpec(original="/My Server/members/alice.json",
+        PathSpec(resource_path="My Server/members/alice.json",
+                 virtual="/My Server/members/alice.json",
                  directory="/My Server/members/alice.json"), index)
     assert result.type == FileType.JSON
     assert result.extra["user_id"] == "U001"
@@ -103,8 +111,10 @@ async def test_stat_member(accessor, index):
 @pytest.mark.asyncio
 async def test_stat_date_dir(accessor, index):
     path = "/My Server/channels/general/2024-01-15"
-    result = await stat(accessor, PathSpec(original=path, directory=path),
-                        index)
+    result = await stat(
+        accessor,
+        PathSpec(virtual=path, directory=path, resource_path=path.strip("/")),
+        index)
     assert result.type == FileType.DIRECTORY
     assert result.name == "2024-01-15"
 
@@ -112,8 +122,10 @@ async def test_stat_date_dir(accessor, index):
 @pytest.mark.asyncio
 async def test_stat_chat_jsonl(accessor, index):
     path = "/My Server/channels/general/2024-01-15/chat.jsonl"
-    result = await stat(accessor, PathSpec(original=path, directory=path),
-                        index)
+    result = await stat(
+        accessor,
+        PathSpec(virtual=path, directory=path, resource_path=path.strip("/")),
+        index)
     assert result.type == FileType.TEXT
     assert result.name == "chat.jsonl"
 
@@ -121,10 +133,34 @@ async def test_stat_chat_jsonl(accessor, index):
 @pytest.mark.asyncio
 async def test_stat_files_dir(accessor, index):
     path = "/My Server/channels/general/2024-01-15/files"
-    result = await stat(accessor, PathSpec(original=path, directory=path),
-                        index)
+    result = await stat(
+        accessor,
+        PathSpec(virtual=path, directory=path, resource_path=path.strip("/")),
+        index)
     assert result.type == FileType.DIRECTORY
     assert result.name == "files"
+
+
+@pytest.mark.asyncio
+async def test_stat_non_date_chat_jsonl_not_found(accessor, index):
+    path = "/My Server/channels/general/notadate/chat.jsonl"
+    with pytest.raises(FileNotFoundError):
+        await stat(
+            accessor,
+            PathSpec(virtual=path,
+                     directory=path,
+                     resource_path=path.strip("/")), index)
+
+
+@pytest.mark.asyncio
+async def test_stat_non_date_files_dir_not_found(accessor, index):
+    path = "/My Server/channels/general/notadate/files"
+    with pytest.raises(FileNotFoundError):
+        await stat(
+            accessor,
+            PathSpec(virtual=path,
+                     directory=path,
+                     resource_path=path.strip("/")), index)
 
 
 @pytest.mark.asyncio
@@ -132,5 +168,6 @@ async def test_stat_not_found(accessor, index):
     with pytest.raises(FileNotFoundError):
         await stat(
             accessor,
-            PathSpec(original="/nonexistent/path",
+            PathSpec(resource_path="nonexistent/path",
+                     virtual="/nonexistent/path",
                      directory="/nonexistent/path"), index)

@@ -90,17 +90,6 @@ def _interpolate_env(value: Any, env: dict[str, str]) -> Any:
     return out
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
-    result = dict(base)
-    for k, v in override.items():
-        if (k in result and isinstance(result[k], dict)
-                and isinstance(v, dict)):
-            result[k] = _deep_merge(result[k], v)
-        else:
-            result[k] = v
-    return result
-
-
 class RamCacheBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -195,7 +184,6 @@ class WorkspaceConfig(BaseModel):
                 ``Workspace`` constructor expects.
         """
         resources: dict[str, Any] = {}
-        fuse_mounts: dict[str, bool | str] = {}
         for prefix, block in self.mounts.items():
             prov = build_resource(block.resource, block.config)
             mode = block.mode if block.mode is not None else self.mode
@@ -203,21 +191,30 @@ class WorkspaceConfig(BaseModel):
                 resources[prefix] = (prov, mode, block.command_safeguards)
             else:
                 resources[prefix] = (prov, mode)
-            if block.fuse:
-                fuse_mounts[prefix] = block.fuse
         kwargs: dict[str, Any] = {
             "resources": resources,
             "mode": self.mode,
             "consistency": self.consistency,
             "session_id": self.default_session_id,
             "agent_id": self.default_agent_id,
-            "fuse_mounts": fuse_mounts,
         }
         if self.cache is not None:
             kwargs["cache"] = _build_cache_config(self.cache)
         if self.index is not None:
             kwargs["index"] = _build_index_config(self.index)
         return kwargs
+
+    def fuse_mounts(self) -> dict[str, bool | str]:
+        """Declarative FUSE mounts keyed by mount prefix.
+
+        Returns:
+            dict[str, bool | str]: prefix to ``fuse`` block value (a
+                mountpoint path or ``True``) for mounts that request FUSE.
+        """
+        return {
+            prefix: block.fuse
+            for prefix, block in self.mounts.items() if block.fuse
+        }
 
 
 def _build_cache_config(block: RamCacheBlock | RedisCacheBlock) -> CacheConfig:
@@ -272,42 +269,3 @@ def load_config(source: str | Path | dict,
     use_env = env if env is not None else dict(os.environ)
     interpolated = _interpolate_env(raw, use_env)
     return WorkspaceConfig.model_validate(interpolated)
-
-
-def merge_override(base: WorkspaceConfig,
-                   override: str | Path | dict,
-                   env: dict[str, str] | None = None) -> WorkspaceConfig:
-    """Apply a partial config on top of an existing one.
-
-    Used by clone/load override config files to swap selected fields
-    (typically resource creds, occasionally a bucket or URL) without
-    rewriting the whole config.
-
-    Merge semantics: nested dicts merge by key recursively; leaf
-    values replace. Mounts not mentioned in the override survive
-    unchanged.
-
-    Args:
-        base (WorkspaceConfig): the original config.
-        override (str | Path | dict): partial config -- either a path
-            to a YAML / JSON file or an already-parsed dict.
-        env (dict[str, str] | None): env mapping for ``${VAR}``
-            interpolation in the override. Defaults to ``os.environ``.
-
-    Returns:
-        WorkspaceConfig: a new validated config with the override
-        applied.
-    """
-    if isinstance(override, (str, Path)):
-        text = Path(override).read_text(encoding="utf-8")
-        raw = yaml.safe_load(text) or {}
-    else:
-        raw = dict(override)
-    if not isinstance(raw, dict):
-        raise ValueError(
-            f"override must be a mapping, got {type(raw).__name__}")
-    use_env = env if env is not None else dict(os.environ)
-    interpolated = _interpolate_env(raw, use_env)
-    base_dict = base.model_dump()
-    merged = _deep_merge(base_dict, interpolated)
-    return WorkspaceConfig.model_validate(merged)

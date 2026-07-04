@@ -12,21 +12,15 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { ResourceName, command, specOf, sedGeneric } from '@struktoai/mirage-core'
+import { ResourceName, makeSed } from '@struktoai/mirage-core'
 import type { SSHAccessor } from '../../../accessor/ssh.ts'
 import { stream as sshStream } from '../../../core/ssh/stream.ts'
+import { stat as sshProvStat } from '../../../core/ssh/stat.ts'
 import { writeBytes as sshWrite } from '../../../core/ssh/write.ts'
 
-export const SSH_SED = command({
-  name: 'sed',
+export const SSH_SED = makeSed<SSHAccessor>({
+  stat: (a, p) => sshProvStat(a, p),
   resource: ResourceName.SSH,
-  spec: specOf('sed'),
-  fn: (accessor: SSHAccessor, paths, texts, opts) =>
-    sedGeneric(
-      paths,
-      texts,
-      opts,
-      (p) => sshStream(accessor, p),
-      (p, d) => sshWrite(accessor, p, d),
-    ),
+  stream: (a, p) => sshStream(a, p),
+  write: (a, p, d) => sshWrite(a, p, d),
 })

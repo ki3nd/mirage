@@ -123,7 +123,6 @@ export const ResourceName = Object.freeze({
   DISCORD: 'discord',
   GMAIL: 'gmail',
   TRELLO: 'trello',
-  TELEGRAM: 'telegram',
   MONGODB: 'mongodb',
   NOTION: 'notion',
   LANGFUSE: 'langfuse',
@@ -139,6 +138,7 @@ export const ResourceName = Object.freeze({
   POSTGRES: 'postgres',
   LANCEDB: 'lancedb',
   CHROMA: 'chroma',
+  QDRANT: 'qdrant',
   HF_BUCKETS: 'hf_buckets',
   HF_DATASETS: 'hf_datasets',
   HF_MODELS: 'hf_models',
@@ -214,60 +214,75 @@ export class FileStat {
 }
 
 export interface PathSpecInit {
-  original: string
+  virtual: string
   directory: string
+  resourcePath: string
   pattern?: string | null
   resolved?: boolean
-  prefix?: string
+  rawPath?: string | null
 }
 
 export class PathSpec {
-  readonly original: string
+  readonly virtual: string
   readonly directory: string
+  readonly resourcePath: string
   readonly pattern: string | null
   readonly resolved: boolean
-  readonly prefix: string
+  readonly rawPath: string | null
 
   constructor(init: PathSpecInit) {
-    this.original = init.original
+    this.virtual = init.virtual
     this.directory = init.directory
+    this.resourcePath = init.resourcePath
     this.pattern = init.pattern ?? null
     this.resolved = init.resolved ?? true
-    this.prefix = init.prefix ?? ''
+    this.rawPath = init.rawPath ?? null
     Object.freeze(this)
   }
 
-  get stripPrefix(): string {
-    if (this.prefix && this.original.startsWith(this.prefix)) {
-      const rest = this.original.slice(this.prefix.length)
-      if (this.prefix.endsWith('/') || rest === '' || rest.startsWith('/')) {
-        return rest === '' ? '/' : rest
-      }
-    }
-    return this.original
+  // The path as the user typed it, for rendering in output. Falls back to
+  // `virtual` (the resolved absolute path) when no raw form was recorded,
+  // e.g. for absolute arguments.
+  get display(): string {
+    return this.rawPath ?? this.virtual
   }
 
-  get key(): string {
-    return stripSlash(this.stripPrefix)
+  // Mount-relative path with a leading slash. Pure formatting of
+  // `resourcePath` ('' -> '/', 'sub/x' -> '/sub/x'); used for
+  // byte-accounting keys and path arithmetic in slash-framed
+  // mount-relative space.
+  get mountPath(): string {
+    return `/${this.resourcePath}`
   }
 
   get dir(): PathSpec {
+    // The directory's resourcePath is its virtual form with this path's
+    // mount prefix removed; the prefix length is recovered from the
+    // (virtual, resourcePath) pair. Idempotent for specs that are already
+    // directories.
+    const cut = rstripSlash(this.virtual).length - this.resourcePath.length
     return new PathSpec({
-      original: this.directory,
+      virtual: this.directory,
       directory: this.directory,
+      resourcePath: stripSlash(this.directory.slice(cut)),
       pattern: this.pattern,
       resolved: false,
-      prefix: this.prefix,
     })
   }
 
   child(name: string): string {
-    return `${rstripSlash(this.original)}/${name}`
+    return `${rstripSlash(this.virtual)}/${name}`
   }
 
-  static fromStrPath(path: string, prefix = ''): PathSpec {
+  // Wrap a path string; defaults to a root-mounted resourcePath (the path
+  // is assumed to carry no mount prefix).
+  static fromStrPath(path: string, resourcePath?: string): PathSpec {
     const idx = path.lastIndexOf('/')
     const directory = path.slice(0, idx + 1) || '/'
-    return new PathSpec({ original: path, directory, prefix })
+    return new PathSpec({
+      virtual: path,
+      directory,
+      resourcePath: resourcePath ?? stripSlash(path),
+    })
   }
 }

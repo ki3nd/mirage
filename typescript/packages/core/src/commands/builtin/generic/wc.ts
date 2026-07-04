@@ -12,6 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { cacheAwareStreamEager } from '../../../cache/read_through.ts'
 import { IOResult, materialize, type ByteSource } from '../../../io/types.ts'
 import type { PathSpec } from '../../../types.ts'
 import type { CommandFnResult, CommandOpts } from '../../config.ts'
@@ -74,6 +75,7 @@ export async function wcGeneric(
   opts: CommandOpts,
   stream: Stream,
 ): Promise<CommandFnResult> {
+  stream = cacheAwareStreamEager(stream)
   const f = opts.flags
   const lFlag = f.args_l === true
   const wFlag = f.w === true
@@ -94,23 +96,23 @@ export async function wcGeneric(
       const byteCount = data.byteLength
       if (LFlag) {
         const maxLen = text.split(/\r?\n/).reduce((m, l) => Math.max(m, l.length), 0)
-        rows.push({ values: [maxLen], label: p.original })
+        rows.push({ values: [maxLen], label: p.display })
         totalMax = Math.max(totalMax, maxLen)
       } else if (lFlag) {
-        rows.push({ values: [lineCount], label: p.original })
+        rows.push({ values: [lineCount], label: p.display })
         totalLines += lineCount
       } else if (wFlag) {
-        rows.push({ values: [wordCount], label: p.original })
+        rows.push({ values: [wordCount], label: p.display })
         totalWords += wordCount
       } else if (cFlag) {
-        rows.push({ values: [byteCount], label: p.original })
+        rows.push({ values: [byteCount], label: p.display })
         totalBytes += byteCount
       } else if (mFlag) {
         const charCount = text.length
-        rows.push({ values: [charCount], label: p.original })
+        rows.push({ values: [charCount], label: p.display })
         totalBytes += charCount
       } else {
-        rows.push({ values: [lineCount, wordCount, byteCount], label: p.original })
+        rows.push({ values: [lineCount, wordCount, byteCount], label: p.display })
         totalLines += lineCount
         totalWords += wordCount
         totalBytes += byteCount

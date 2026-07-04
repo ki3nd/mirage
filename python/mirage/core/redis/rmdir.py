@@ -13,15 +13,18 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.redis import RedisAccessor
+from mirage.cache.context import invalidate_after_unlink
 from mirage.types import PathSpec
 from mirage.utils.path import norm
 
 
 async def rmdir(accessor: RedisAccessor, path: PathSpec) -> None:
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     store = accessor.store
     p = norm(path)
     if not await store.has_dir(p):
@@ -36,3 +39,4 @@ async def rmdir(accessor: RedisAccessor, path: PathSpec) -> None:
     if children:
         raise OSError(f"directory not empty: {p}")
     await store.remove_dir(p)
+    await invalidate_after_unlink(path)

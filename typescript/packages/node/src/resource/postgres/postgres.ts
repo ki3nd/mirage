@@ -14,23 +14,25 @@
 
 import {
   BaseResource,
-  type FileStat,
-  PathSpec,
   POSTGRES_COMMANDS,
   POSTGRES_OPS,
   POSTGRES_PROMPT,
+  PathSpec,
   PostgresAccessor,
-  type PostgresConfig,
-  type PostgresConfigResolved,
+  ResourceName,
+  mountKey,
+  mountPrefixOf,
   postgresRead,
   postgresReaddir,
   postgresStat,
+  resolvePostgresConfig,
+  resolvePostgresGlob,
+  type FileStat,
+  type PostgresConfig,
+  type PostgresConfigResolved,
   type RegisteredCommand,
   type RegisteredOp,
   type Resource,
-  ResourceName,
-  resolvePostgresConfig,
-  resolvePostgresGlob,
 } from '@struktoai/mirage-core'
 import { PostgresStore } from './store.ts'
 
@@ -41,7 +43,7 @@ export interface PostgresResourceOptions {
 
 export class PostgresResource extends BaseResource implements Resource {
   readonly kind: string = ResourceName.POSTGRES
-  readonly isRemote: boolean = true
+  readonly cachesReads: boolean = false
   readonly indexTtl: number = 0
   readonly prompt: string
   readonly config: PostgresConfigResolved
@@ -90,14 +92,14 @@ export class PostgresResource extends BaseResource implements Resource {
     const effective =
       prefix !== ''
         ? paths.map((p) =>
-            p.prefix !== ''
+            mountPrefixOf(p.virtual, p.resourcePath) !== ''
               ? p
               : new PathSpec({
-                  original: p.original,
+                  virtual: p.virtual,
                   directory: p.directory,
                   ...(p.pattern !== null ? { pattern: p.pattern } : {}),
                   resolved: p.resolved,
-                  prefix,
+                  resourcePath: mountKey(p.virtual, prefix),
                 }),
           )
         : paths

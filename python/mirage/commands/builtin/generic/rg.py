@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from functools import partial
 
 from mirage.cache.index import IndexCacheStore
+from mirage.cache.read_through import (cache_aware_read_bytes,
+                                       cache_aware_read_stream)
 from mirage.commands.builtin.grep_helper import (compile_pattern,
                                                  grep_count_has_matches,
                                                  grep_lines, grep_stream,
@@ -22,6 +24,8 @@ from mirage.commands.spec.types import FlagView
 from mirage.io.stream import exit_on_empty
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import FileStat, FileType, PathSpec
+from mirage.utils.key_prefix import mount_prefix_of
+from mirage.utils.path import rebase_display
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +92,6 @@ async def rg(
     read_stream: Callable[..., AsyncIterator[bytes]] | None,
     accessor: object = None,
     stdin: AsyncIterator[bytes] | bytes | None = None,
-    scope_check: Callable[..., Awaitable[str | None]] | None = None,
     index: IndexCacheStore | None = None,
 ) -> tuple[ByteSource | None, IOResult]:
     """Run ripgrep-style fallback search over backend paths or stdin.
@@ -112,14 +115,15 @@ async def rg(
         accessor (object): Backend accessor passed through wrapper helpers.
         stdin (AsyncIterator[bytes] | bytes | None): Input used when paths is
             empty.
-        scope_check (Callable[..., Awaitable[str | None]] | None): Optional
-            backend warning hook.
         index (IndexCacheStore | None): Optional cache index for wrapped
             backend calls.
 
     Returns:
         tuple[ByteSource | None, IOResult]: Output stream and exit metadata.
     """
+    read_bytes = cache_aware_read_bytes(read_bytes)
+    if read_stream is not None:
+        read_stream = cache_aware_read_stream(read_stream)
     fl = FlagView(flags, spec=SPECS["rg"])
     pattern, never_match = await resolve_pattern(
         texts, fl, read_bytes, accessor, index,
@@ -127,7 +131,8 @@ async def rg(
     f = parse_flags(fl, never_match)
 
     if paths:
-        mount_prefix = paths[0].prefix
+        mount_prefix = mount_prefix_of(paths[0].virtual,
+                                       paths[0].resource_path)
         rd = partial(call_readdir,
                      readdir,
                      accessor,
@@ -144,17 +149,13 @@ async def rg(
                      index=index,
                      prefix=mount_prefix)
 
-        scope_warning_str: str | None = None
-        if scope_check is not None and not paths[0].resolved:
-            scope_warning_str = await scope_check(rd, st, paths[0], True)
-
         is_dir = False
         try:
-            s = await st(paths[0].original)
+            s = await st(paths[0].virtual)
             is_dir = s.type == FileType.DIRECTORY
         except (FileNotFoundError, ValueError):
             try:
-                await rd(paths[0].original)
+                await rd(paths[0].virtual)
                 is_dir = True
             except (FileNotFoundError, ValueError):
                 pass
@@ -163,15 +164,13 @@ async def rg(
                       or f.context_after or f.file_type or f.glob_pattern)
         if needs_full:
             warnings_f: list[str] = []
-            if scope_warning_str:
-                warnings_f.append(scope_warning_str)
             results: list[str] = []
             for p in paths:
-                results.extend(await rg_full(
+                hits_full = await rg_full(
                     rd,
                     st,
                     rb,
-                    p.original,
+                    p.virtual,
                     pattern,
                     ignore_case=f.ignore_case,
                     invert=f.invert,
@@ -188,8 +187,9 @@ async def rg(
                     glob_pattern=f.glob_pattern,
                     hidden=f.hidden,
                     warnings=warnings_f,
-                    file_prefix=p.original if len(paths) > 1 else None,
-                ))
+                    file_prefix=p.display if len(paths) > 1 else None,
+                )
+                results.extend(rebase_display(hits_full, p.virtual, p.display))
             stderr = format_optional_records(warnings_f)
             if not results:
                 return b"", IOResult(exit_code=1, stderr=stderr)
@@ -202,17 +202,17 @@ async def rg(
             all_results: list[str] = []
             for p in paths:
                 data = split_lines((await
-                                    rb(p.original)).decode(errors="replace"))
-                hits = grep_lines(p.original, data, pat, f.invert,
+                                    rb(p.virtual)).decode(errors="replace"))
+                hits = grep_lines(p.display, data, pat, f.invert,
                                   f.line_numbers, f.count_only, f.files_only,
                                   f.only_matching, f.max_count)
                 if f.count_only:
                     if grep_count_has_matches(hits):
-                        all_results.append(f"{p.original}:{hits[0]}")
+                        all_results.append(f"{p.display}:{hits[0]}")
                 elif f.files_only:
                     all_results.extend(hits)
                 else:
-                    all_results.extend(f"{p.original}:{r}" for r in hits)
+                    all_results.extend(f"{p.display}:{r}" for r in hits)
             if not all_results:
                 return b"", IOResult(exit_code=1)
             return format_records(all_results), IOResult()
@@ -220,7 +220,7 @@ async def rg(
         if read_stream is not None:
             source: AsyncIterator[bytes] = read_stream(accessor, paths[0])
         else:
-            data = await rb(paths[0].original)
+            data = await rb(paths[0].virtual)
             source = _wrap_bytes(data)
         stream = grep_stream(
             source,

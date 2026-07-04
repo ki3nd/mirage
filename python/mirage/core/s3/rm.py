@@ -13,6 +13,7 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from mirage.accessor.s3 import S3Accessor
+from mirage.cache.context import invalidate_after_unlink
 from mirage.core.s3._client import _client_kwargs, _prefix, async_session
 from mirage.types import PathSpec
 
@@ -25,9 +26,11 @@ async def rm_r(accessor: S3Accessor, path: PathSpec) -> None:
         path (PathSpec | str): Prefix path.
     """
     if isinstance(path, str):
-        path = PathSpec(original=path, directory=path)
+        path = PathSpec(virtual=path,
+                        directory=path,
+                        resource_path=path.strip("/"))
     if isinstance(path, PathSpec):
-        path = path.strip_prefix
+        path = path.mount_path
     config = accessor.config
     pfx = _prefix(path, config)
     session = async_session(config)
@@ -40,3 +43,4 @@ async def rm_r(accessor: S3Accessor, path: PathSpec) -> None:
                     Bucket=config.bucket,
                     Delete={"Objects": keys},
                 )
+    await invalidate_after_unlink(path)

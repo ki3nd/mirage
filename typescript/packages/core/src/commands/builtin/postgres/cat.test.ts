@@ -12,9 +12,11 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { mountKey } from '../../../utils/key_prefix.ts'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../core/postgres/read.ts', () => ({
+  read: vi.fn(),
   readStream: vi.fn(),
 }))
 vi.mock('../../../core/postgres/stat.ts', () => ({
@@ -28,7 +30,9 @@ import * as statModule from '../../../core/postgres/stat.ts'
 import { resolvePostgresConfig } from '../../../resource/postgres/config.ts'
 import { materialize } from '../../../io/types.ts'
 import { FileStat, PathSpec } from '../../../types.ts'
-import { POSTGRES_CAT } from './cat.ts'
+import { POSTGRES_COMMANDS } from './index.ts'
+
+const POSTGRES_CAT = POSTGRES_COMMANDS.filter((c) => c.name === 'cat' && c.filetype == null)
 
 class StubDriver implements PgDriver {
   query<R = Record<string, unknown>>(): Promise<PgQueryResult<R>> {
@@ -66,10 +70,10 @@ describe('postgres cat size-guard surfacing', () => {
     if (cmd === undefined) throw new Error('cat not registered')
     const accessor = makeAccessor()
     const path = new PathSpec({
-      original: '/pg/public/tables/users/rows.jsonl',
+      virtual: '/pg/public/tables/users/rows.jsonl',
       directory: '/pg/public/tables/users/',
       resolved: true,
-      prefix: '/pg',
+      resourcePath: mountKey('/pg/public/tables/users/rows.jsonl', '/pg'),
     })
     const result = await cmd.fn(accessor, [path], [], {
       stdin: null,

@@ -23,8 +23,9 @@ import { CallStack } from '../../shell/call_stack.ts'
 import type { JobTable } from '../../shell/job_table.ts'
 import { ERREXIT_EXEMPT_TYPES } from '../../shell/types.ts'
 import { PathSpec } from '../../types.ts'
-import type { Mount } from '../mount/mount.ts'
-import type { MountRegistry } from '../mount/registry.ts'
+import type { MountEntry } from '../mount/mount.ts'
+import type { Namespace } from '../mount/namespace.ts'
+import { MountCommandUnsupported, type MountRegistry } from '../mount/registry.ts'
 import type { PyodideRuntime } from './python/runtime.ts'
 import type { Session } from '../session/session.ts'
 import { ExecutionNode } from '../types.ts'
@@ -70,6 +71,7 @@ export async function handleCommand(
   ensureOpen?: (resource: Resource) => Promise<void>,
   unmount?: (prefix: string) => Promise<void>,
   pythonRuntime?: PyodideRuntime,
+  namespace?: Namespace,
 ): Promise<Result> {
   if (parts.length === 0) {
     return [null, new IOResult(), new ExecutionNode({ command: '', exitCode: 0 })]
@@ -79,11 +81,11 @@ export async function handleCommand(
   if (head === undefined) {
     return [null, new IOResult(), new ExecutionNode({ command: '', exitCode: 0 })]
   }
-  const cmdName = typeof head === 'string' ? head : head.original
-  const cmdStr = parts.map((p) => (typeof p === 'string' ? p : p.original)).join(' ')
+  const cmdName = typeof head === 'string' ? head : head.virtual
+  const cmdStr = parts.map((p) => (typeof p === 'string' ? p : p.virtual)).join(' ')
 
   if (JOB_BUILTINS.has(cmdName) && jobTable !== null) {
-    const textParts = parts.map((p) => (typeof p === 'string' ? p : p.original))
+    const textParts = parts.map((p) => (typeof p === 'string' ? p : p.virtual))
     if (cmdName === 'wait' || cmdName === 'fg') return handleWait(jobTable, textParts)
     if (cmdName === 'kill') return handleKill(jobTable, textParts)
     if (cmdName === 'jobs') return handleJobs(jobTable, textParts)
@@ -108,9 +110,9 @@ export async function handleCommand(
     const p = parts[i]
     if (p instanceof PathSpec) pathScopes.push(p)
   }
-  const textOnly = parts.slice(1).map((p) => (typeof p === 'string' ? p : p.original))
+  const textOnly = parts.slice(1).map((p) => (typeof p === 'string' ? p : p.virtual))
 
-  const rawArgv = parts.slice(1).map((p) => (typeof p === 'string' ? p : p.original))
+  const rawArgv = parts.slice(1).map((p) => (typeof p === 'string' ? p : p.virtual))
   const guardResult = checkMountRootGuard(cmdName, pathScopes, registry, rawArgv)
   if (guardResult !== null) {
     const errBytes = new TextEncoder().encode(guardResult.message)
@@ -150,17 +152,26 @@ export async function handleCommand(
   }
 
   if (isCrossMount(cmdName, pathScopes, registry)) {
+    // Parse against the mount spec so flags and text operands split like
+    // the single-mount path: raw argv would hand flag tokens ("-c") to
+    // the generic as the search pattern.
+    const srcMount = registry.mountFor(pathScopes[0]?.virtual ?? session.cwd)
+    const csParsed =
+      srcMount !== null ? parseFlags(parts.slice(1), srcMount, cmdName, session.cwd) : null
+    const csFlags = csParsed !== null ? csParsed[2] : {}
+    const csTexts = csParsed !== null ? csParsed[1] : textOnly
     const [csStdout, csIo, csExec] = await handleCrossMount(
       cmdName,
       pathScopes,
-      textOnly,
+      csTexts,
+      csFlags,
       dispatch,
       cmdStr,
     )
     if (csIo.safeguard === null) {
-      const mounts: Mount[] = []
+      const mounts: MountEntry[] = []
       for (const s of pathScopes) {
-        const m = registry.mountFor(s.original)
+        const m = registry.mountFor(s.virtual)
         if (m !== null) mounts.push(m)
       }
       csIo.safeguard =
@@ -172,7 +183,7 @@ export async function handleCommand(
   if (pathScopes.length >= 2) {
     const mountPrefixes = new Set<string>()
     for (const s of pathScopes) {
-      const m = registry.mountFor(s.original)
+      const m = registry.mountFor(s.virtual)
       if (m !== null) mountPrefixes.add(m.prefix)
     }
     if (mountPrefixes.size > 1) {
@@ -188,7 +199,20 @@ export async function handleCommand(
     }
   }
 
-  const mount = await registry.resolveMount(cmdName, pathScopes, session.cwd)
+  let mount: MountEntry | null
+  try {
+    mount = await registry.resolveMount(cmdName, pathScopes, session.cwd)
+  } catch (err) {
+    if (err instanceof MountCommandUnsupported) {
+      const errBytes = new TextEncoder().encode(`${err.message}\n`)
+      return [
+        null,
+        new IOResult({ exitCode: 1, stderr: errBytes }),
+        new ExecutionNode({ command: cmdStr, stderr: errBytes, exitCode: 1 }),
+      ]
+    }
+    throw err
+  }
   if (mount === null) {
     const err = new TextEncoder().encode(`${cmdName}: command not found`)
     return [
@@ -263,7 +287,7 @@ export async function handleCommand(
   // does not carry the origin mount's per-command safeguards. Resolve the
   // safeguard from the real (pre-redirect) mount so the cap survives the hit.
   const realMount = registry.mountFor(
-    pathScopes.length > 0 ? (pathScopes[0]?.original ?? session.cwd) : session.cwd,
+    pathScopes.length > 0 ? (pathScopes[0]?.virtual ?? session.cwd) : session.cwd,
   )
   const safeguardOverride = realMount?.commandSafeguards.get(cmdName) ?? null
 
@@ -281,6 +305,9 @@ export async function handleCommand(
     let stdout = initialStdout
     if (cmdName === 'ls' && io.exitCode === 0) {
       stdout = await injectChildMounts(stdout, registry, paths, flagKwargs, session.cwd)
+      if (namespace !== undefined && namespace.symlinks.size > 0) {
+        stdout = await injectLinks(stdout, namespace, paths, flagKwargs, session.cwd)
+      }
     }
     if (cmdName === 'find') {
       const [newStdout, actionErr] = await applyFindActions(
@@ -300,7 +327,7 @@ export async function handleCommand(
       }
     }
     const prefix = rstripSlash(mount.prefix)
-    if (prefix !== '' && mount !== registry.defaultMount) {
+    if (prefix !== '') {
       io.reads = prefixKeys(io.reads, prefix)
       io.writes = prefixKeys(io.writes, prefix)
       io.cache = io.cache.map((p) => prefix + p)
@@ -320,9 +347,11 @@ export async function handleCommand(
     return [stdout, io, exec]
   } catch (err) {
     const strerror = gnuStrerror((err as { code?: string }).code)
+    const vpath = errorVirtualPath(err)
+    const display = paths.find((p) => p.virtual === vpath)?.display ?? vpath
     const line =
       strerror !== null
-        ? `${cmdName}: ${errorVirtualPath(err)}: ${strerror}\n`
+        ? `${cmdName}: ${display}: ${strerror}\n`
         : `${cmdName}: ${err instanceof Error ? err.message : String(err)}\n`
     const errBytes = new TextEncoder().encode(line)
     return [
@@ -335,17 +364,17 @@ export async function handleCommand(
 
 function parseFlags(
   parts: readonly (string | PathSpec)[],
-  mount: Mount,
+  mount: MountEntry,
   cmdName: string,
   cwd: string,
 ): [PathSpec[], string[], Record<string, string | boolean | string[]>, string[]] {
-  const argv: string[] = parts.map((item) => (item instanceof PathSpec ? item.original : item))
+  const argv: string[] = parts.map((item) => (item instanceof PathSpec ? item.virtual : item))
   const scopeMap = new Map<string, PathSpec>()
   for (const item of parts) {
     if (item instanceof PathSpec) {
-      scopeMap.set(item.original, item)
-      const stripped = rstripSlash(item.original)
-      if (stripped !== '' && stripped !== item.original) scopeMap.set(stripped, item)
+      scopeMap.set(item.virtual, item)
+      const stripped = rstripSlash(item.virtual)
+      if (stripped !== '' && stripped !== item.virtual) scopeMap.set(stripped, item)
     }
   }
 
@@ -358,7 +387,7 @@ function parseFlags(
       if (typeof value === 'string') {
         const match = scopeMap.get(value)
         if (match !== undefined) {
-          flagKwargs[key] = match.original
+          flagKwargs[key] = match.virtual
         }
       }
     }
@@ -374,7 +403,8 @@ function parseFlags(
           const slash = value.lastIndexOf('/')
           paths.push(
             new PathSpec({
-              original: value,
+              resourcePath: stripSlash(value),
+              virtual: value,
               directory: slash >= 0 ? value.slice(0, slash + 1) : '/',
               resolved: true,
             }),
@@ -416,7 +446,7 @@ function checkMountRootGuard(
   argv: readonly string[],
 ): GuardResult | null {
   if (paths.length === 0) return null
-  const isRoot = (p: PathSpec): boolean => registry.isMountRoot(p.original)
+  const isRoot = (p: PathSpec): boolean => registry.isMountRoot(p.virtual)
 
   if (cmdName === 'rm' || cmdName === 'rmdir') {
     for (const p of paths) {
@@ -424,8 +454,8 @@ function checkMountRootGuard(
         return {
           message:
             cmdName === 'rmdir'
-              ? `rmdir: failed to remove '${p.original}': Device or resource busy\n`
-              : `rm: cannot remove '${p.original}': Device or resource busy\n`,
+              ? `rmdir: failed to remove '${p.virtual}': Device or resource busy\n`
+              : `rm: cannot remove '${p.virtual}': Device or resource busy\n`,
           exitCode: 1,
         }
       }
@@ -435,9 +465,9 @@ function checkMountRootGuard(
 
   if (cmdName === 'mv') {
     if (paths[0] !== undefined && isRoot(paths[0])) {
-      const dst = paths[1] !== undefined ? paths[1].original : '?'
+      const dst = paths[1] !== undefined ? paths[1].virtual : '?'
       return {
-        message: `mv: cannot move '${paths[0].original}' to '${dst}': Device or resource busy\n`,
+        message: `mv: cannot move '${paths[0].virtual}' to '${dst}': Device or resource busy\n`,
         exitCode: 1,
       }
     }
@@ -452,7 +482,7 @@ function checkMountRootGuard(
     for (const p of paths) {
       if (isRoot(p)) {
         return {
-          message: `mkdir: cannot create directory '${p.original}': File exists\n`,
+          message: `mkdir: cannot create directory '${p.virtual}': File exists\n`,
           exitCode: 1,
         }
       }
@@ -464,7 +494,7 @@ function checkMountRootGuard(
     for (const p of paths) {
       if (isRoot(p)) {
         return {
-          message: `touch: cannot touch '${p.original}': Is a directory\n`,
+          message: `touch: cannot touch '${p.virtual}': Is a directory\n`,
           exitCode: 1,
         }
       }
@@ -476,7 +506,7 @@ function checkMountRootGuard(
     const last = paths[paths.length - 1]
     if (last !== undefined && isRoot(last)) {
       return {
-        message: `ln: failed to create link '${last.original}': File exists\n`,
+        message: `ln: failed to create link '${last.virtual}': File exists\n`,
         exitCode: 1,
       }
     }
@@ -484,6 +514,44 @@ function checkMountRootGuard(
   }
 
   return null
+}
+
+// Append symlink entries living under the listed directory. Links are
+// namespace state, invisible to backend readdir, so `ls` surfaces them the
+// same way child mounts are surfaced. Long form renders GNU-style
+// `name -> target`.
+async function injectLinks(
+  stdout: ByteSource | null,
+  namespace: Namespace,
+  paths: readonly PathSpec[],
+  flagKwargs: Record<string, string | boolean | string[]>,
+  cwd: string,
+): Promise<ByteSource | null> {
+  if (flagKwargs.d === true || flagKwargs.R === true) return stdout
+  if (paths.length > 1) return stdout
+  const listed = paths.length === 1 && paths[0] !== undefined ? paths[0].virtual : cwd
+  const links = namespace.linksUnder(listed)
+  if (links.size === 0) return stdout
+
+  const existing = stdout === null ? '' : new TextDecoder().decode(await materialize(stdout))
+  const long = flagKwargs.args_l === true
+  const classify = flagKwargs.F === true
+  const present = new Set<string>()
+  for (const line of existing.split('\n')) {
+    if (line === '') continue
+    const name = long ? (line.split('\t').pop() ?? '') : line.replace(/[/*@|=]$/, '')
+    if (name !== '') present.add(name)
+  }
+  const extras: string[] = []
+  for (const n of [...links.keys()].sort()) {
+    if (present.has(n)) continue
+    if (long) extras.push(`l\t-\t-\t${n} -> ${links.get(n) ?? ''}`)
+    else extras.push(classify ? `${n}@` : n)
+  }
+  if (extras.length === 0) return stdout
+  const sep = existing === '' || existing.endsWith('\n') ? '' : '\n'
+  const combined = existing + sep + extras.join('\n') + '\n'
+  return new TextEncoder().encode(combined)
 }
 
 async function injectChildMounts(
@@ -495,7 +563,7 @@ async function injectChildMounts(
 ): Promise<ByteSource | null> {
   if (flagKwargs.d === true || flagKwargs.R === true) return stdout
   if (paths.length > 1) return stdout
-  const listed = paths.length === 1 && paths[0] !== undefined ? paths[0].original : cwd
+  const listed = paths.length === 1 && paths[0] !== undefined ? paths[0].virtual : cwd
   const includeHidden = flagKwargs.a === true || flagKwargs.A === true
   const childNames = registry.childMountNames(listed, includeHidden)
   if (childNames.length === 0) return stdout
@@ -531,7 +599,7 @@ async function executeShellFunction(
   callStack: CallStack | null,
 ): Promise<Result> {
   const cs = callStack ?? new CallStack()
-  const textArgs = restParts.map((p) => (typeof p === 'string' ? p : p.original))
+  const textArgs = restParts.map((p) => (typeof p === 'string' ? p : p.virtual))
   cs.push(textArgs, cmdName)
   const savedLocals = new Map<string, string | null>()
   session.localVars = savedLocals
@@ -621,7 +689,7 @@ async function tryUnmountIntercept(
   }
   if (!recursive) return null
 
-  const original = pathScope.original
+  const original = pathScope.virtual
   const stripped = stripSlash(original)
   const norm = stripped ? `/${stripped}/` : '/'
   const matched = registry.mountForPrefix(norm)
