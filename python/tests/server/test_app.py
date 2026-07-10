@@ -14,7 +14,7 @@
 
 import os
 
-from mirage.server.app import (_remove_pid_file, _write_pid_file, build_app)
+from mirage.server.app import _remove_pid_file, _write_pid_file, build_app
 from mirage.server.env import ENV_HOME, ENV_PID_FILE
 
 
