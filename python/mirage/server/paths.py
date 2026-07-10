@@ -16,7 +16,50 @@ import os
 import re
 from pathlib import Path
 
+from mirage.server.env import ENV_HOME, ENV_PID_FILE
+
 _SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def mirage_home() -> Path:
+    """Resolve the base directory backing the ``.mirage`` data tree.
+
+    Priority: ``$MIRAGE_HOME`` if set, else ``~/.mirage``.
+
+    Returns:
+        Path: base directory for pid file, repos, and snapshots.
+    """
+    override = os.environ.get(ENV_HOME)
+    return Path(override) if override else Path.home() / ".mirage"
+
+
+def pid_file_path(explicit: str | Path | None = None) -> Path:
+    """Resolve the daemon pid file location.
+
+    Priority: ``explicit`` argument, then ``$MIRAGE_PID_FILE``, then
+    ``daemon.pid`` under :func:`mirage_home`.
+
+    Args:
+        explicit (str | Path | None): caller-supplied override that
+            wins over any environment variable.
+
+    Returns:
+        Path: the resolved pid file path.
+    """
+    if explicit is not None:
+        return Path(explicit)
+    override = os.environ.get(ENV_PID_FILE)
+    return Path(override) if override else mirage_home() / "daemon.pid"
+
+
+def default_version_root() -> Path:
+    """Default git repos root, under :func:`mirage_home`."""
+    return mirage_home() / "repos"
+
+
+def default_snapshot_root() -> Path:
+    """Default snapshot root, under :func:`mirage_home`."""
+    return mirage_home() / "snapshots"
 
 
 class PathOutsideRootError(Exception):

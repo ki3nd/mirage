@@ -14,8 +14,7 @@
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname } from 'node:path'
 import { buildApp, type BuildAppOptions, type MirageApp } from '../app.ts'
 import {
   ENV_DAEMON_PORT,
@@ -23,6 +22,7 @@ import {
   ENV_SNAPSHOT_ROOT,
   ENV_VERSION_ROOT,
 } from '../env.ts'
+import { pidFilePath } from '../paths.ts'
 
 const DEFAULT_PORT = 8765
 
@@ -44,13 +44,10 @@ export function buildDaemonOpts(env: Record<string, string | undefined>): Daemon
   return { port, opts }
 }
 
-function pidFilePath(): string {
-  return join(homedir(), '.mirage', 'daemon.pid')
-}
-
 function writePidFile(): void {
-  mkdirSync(join(homedir(), '.mirage'), { recursive: true })
-  writeFileSync(pidFilePath(), String(process.pid))
+  const p = pidFilePath()
+  mkdirSync(dirname(p), { recursive: true })
+  writeFileSync(p, String(process.pid))
 }
 
 function removePidFile(): void {

@@ -12,9 +12,14 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+from pathlib import Path
+
 import pytest
 
-from mirage.server.paths import (PathOutsideRootError, resolve_within_root,
+from mirage.server.env import ENV_HOME, ENV_PID_FILE
+from mirage.server.paths import (PathOutsideRootError, default_snapshot_root,
+                                 default_version_root, mirage_home,
+                                 pid_file_path, resolve_within_root,
                                  validate_path_segment)
 
 
@@ -57,3 +62,36 @@ def test_validate_path_segment_accepts_safe():
 def test_validate_path_segment_rejects_bad(bad):
     with pytest.raises(PathOutsideRootError):
         validate_path_segment(bad)
+
+
+def test_mirage_home_defaults_to_dot_mirage(monkeypatch):
+    monkeypatch.delenv(ENV_HOME, raising=False)
+    assert mirage_home() == Path.home() / ".mirage"
+
+
+def test_mirage_home_honors_env(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    assert mirage_home() == tmp_path
+
+
+def test_pid_file_defaults_under_home(monkeypatch, tmp_path):
+    monkeypatch.delenv(ENV_PID_FILE, raising=False)
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    assert pid_file_path() == tmp_path / "daemon.pid"
+
+
+def test_pid_file_env_wins_over_home(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    monkeypatch.setenv(ENV_PID_FILE, "/run/mirage/daemon.pid")
+    assert pid_file_path() == Path("/run/mirage/daemon.pid")
+
+
+def test_pid_file_explicit_wins_over_env(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_PID_FILE, "/run/mirage/daemon.pid")
+    assert pid_file_path(tmp_path / "x.pid") == tmp_path / "x.pid"
+
+
+def test_roots_follow_mirage_home(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    assert default_version_root() == tmp_path / "repos"
+    assert default_snapshot_root() == tmp_path / "snapshots"

@@ -12,8 +12,6 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import Fastify from 'fastify'
 import multipart from '@fastify/multipart'
 import rateLimit from '@fastify/rate-limit'
@@ -28,6 +26,7 @@ import { registerJobsRoutes } from './routers/jobs.ts'
 import { registerSessionsRoutes } from './routers/sessions.ts'
 import { registerVersionsRoutes } from './routers/versions.ts'
 import { registerWorkspacesRoutes } from './routers/workspaces.ts'
+import { defaultSnapshotRoot, defaultVersionRoot } from './paths.ts'
 import { LocalBackend } from './version/backend.ts'
 
 export interface BuildAppOptions {
@@ -55,10 +54,8 @@ export function buildApp(options: BuildAppOptions = {}) {
     onIdleExit: exitFn,
   })
   const jobs = new JobTable()
-  const versionBackend = new LocalBackend(
-    options.versionRoot ?? join(homedir(), '.mirage', 'repos'),
-  )
-  const snapshotRoot = options.snapshotRoot ?? join(homedir(), '.mirage', 'snapshots')
+  const versionBackend = new LocalBackend(options.versionRoot ?? defaultVersionRoot())
+  const snapshotRoot = options.snapshotRoot ?? defaultSnapshotRoot()
   const app = Fastify({ logger: false })
   void app.register(rateLimit, {
     global: true,
