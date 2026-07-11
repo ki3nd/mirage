@@ -21,9 +21,20 @@ from mirage.cli.env import ENV_DAEMON_URL, ENV_TOKEN
 from mirage.server.auth import storage as auth_storage
 from mirage.server.daemon_config import (ALLOWED_KEYS, NUMERIC_KEYS,
                                          DaemonConfigError, read_daemon_table)
+from mirage.server.env import (ENV_IDLE_GRACE_SECONDS, ENV_PID_FILE,
+                               ENV_SNAPSHOT_ROOT, ENV_VERSION_ROOT)
 from mirage.server.paths import mirage_home
 
 DEFAULT_DAEMON_URL = "http://127.0.0.1:8765"
+
+_ENV_FOR_KEY = {
+    "url": ENV_DAEMON_URL,
+    "auth_token": ENV_TOKEN,
+    "idle_grace_seconds": ENV_IDLE_GRACE_SECONDS,
+    "pid_file": ENV_PID_FILE,
+    "version_root": ENV_VERSION_ROOT,
+    "snapshot_root": ENV_SNAPSHOT_ROOT,
+}
 
 
 @dataclass
@@ -82,6 +93,44 @@ def load_daemon_settings(path: Path | None = None) -> DaemonSettings:
         if file_token:
             settings.auth_token = file_token
     return settings
+
+
+def _default_for_key(key: str, home: Path) -> str:
+    defaults = {
+        "url": DEFAULT_DAEMON_URL,
+        "socket": "",
+        "auth_token": "",
+        "idle_grace_seconds": "30",
+        "pid_file": str(home / "daemon.pid"),
+        "version_root": str(home / "repos"),
+        "snapshot_root": str(home / "snapshots"),
+    }
+    return defaults[key]
+
+
+def resolved_config() -> dict[str, tuple[str, str]]:
+    """Resolve every config key to its effective value and origin.
+
+    Origin is ``"env <NAME>"``, ``"file"``, or ``"default"``, applying
+    the same precedence the daemon and CLI use (env > file > default;
+    explicit per-call arguments are not represented here).
+
+    Returns:
+        dict[str, tuple[str, str]]: key to (effective value, origin).
+    """
+    home = mirage_home()
+    table = read_daemon_table(home)
+    out: dict[str, tuple[str, str]] = {}
+    for key in sorted(ALLOWED_KEYS):
+        env_name = _ENV_FOR_KEY.get(key)
+        env_value = os.environ.get(env_name) if env_name else None
+        if env_value:
+            out[key] = (env_value, f"env {env_name}")
+        elif str(table.get(key, "")):
+            out[key] = (str(table[key]), "file")
+        else:
+            out[key] = (_default_for_key(key, home), "default")
+    return out
 
 
 def _check_key(key: str) -> None:

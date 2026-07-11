@@ -16,7 +16,7 @@ import pytest
 
 from mirage.cli.settings import (DEFAULT_DAEMON_URL, config_path, get_config,
                                  list_config, load_daemon_settings,
-                                 set_config, unset_config)
+                                 resolved_config, set_config, unset_config)
 from mirage.server.daemon_config import DaemonConfigError
 from mirage.server.env import ENV_HOME
 
@@ -165,3 +165,30 @@ def test_load_daemon_settings_missing_explicit_path_returns_defaults(
     monkeypatch.setenv(ENV_HOME, str(tmp_path))
     settings = load_daemon_settings(path=tmp_path / "nope.toml")
     assert settings.url == DEFAULT_DAEMON_URL
+
+
+def test_resolved_config_reports_origins(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    monkeypatch.setenv("MIRAGE_VERSION_ROOT", "/env/repos")
+    monkeypatch.delenv("MIRAGE_SNAPSHOT_ROOT", raising=False)
+    monkeypatch.delenv("MIRAGE_DAEMON_URL", raising=False)
+    (tmp_path / "config.toml").write_text(
+        '[daemon]\nversion_root = "/file/repos"\nurl = "http://f:1"\n')
+    resolved = resolved_config()
+    assert resolved["version_root"] == ("/env/repos",
+                                        "env MIRAGE_VERSION_ROOT")
+    assert resolved["url"] == ("http://f:1", "file")
+    assert resolved["snapshot_root"] == (str(tmp_path / "snapshots"),
+                                         "default")
+
+
+def test_resolved_config_defaults_when_nothing_set(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    for name in ("MIRAGE_DAEMON_URL", "MIRAGE_TOKEN", "MIRAGE_PID_FILE",
+                 "MIRAGE_VERSION_ROOT", "MIRAGE_SNAPSHOT_ROOT",
+                 "MIRAGE_IDLE_GRACE_SECONDS"):
+        monkeypatch.delenv(name, raising=False)
+    resolved = resolved_config()
+    assert resolved["url"] == (DEFAULT_DAEMON_URL, "default")
+    assert resolved["pid_file"] == (str(tmp_path / "daemon.pid"), "default")
+    assert resolved["idle_grace_seconds"] == ("30", "default")

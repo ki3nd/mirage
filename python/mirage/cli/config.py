@@ -15,17 +15,46 @@
 import typer
 
 from mirage.cli.output import emit, fail
-from mirage.cli.settings import (get_config, list_config, set_config,
-                                 unset_config)
+from mirage.cli.settings import (get_config, list_config, resolved_config,
+                                 set_config, unset_config)
 from mirage.server.daemon_config import ALLOWED_KEYS, DaemonConfigError
 
 app = typer.Typer(no_args_is_help=True,
                   help="Read and write daemon settings in config.toml.")
 
 
+def _mask(key: str, value: str) -> str:
+    if key == "auth_token" and value:
+        return "***"
+    return value
+
+
 @app.command("list")
-def list_cmd() -> None:
-    """Print every key in the config.toml [daemon] table."""
+def list_cmd(resolved: bool = typer.Option(
+        False, "--resolved",
+        help="show effective values and their origins")) -> None:
+    """Print every key in the config.toml [daemon] table.
+
+    With --resolved, print the effective value of every key after
+    applying precedence (env var > config file > default) and where
+    each value came from. auth_token is masked.
+    """
+    if resolved:
+        try:
+            table = resolved_config()
+        except DaemonConfigError as e:
+            fail(str(e), exit_code=2)
+        payload = {
+            k: {
+                "value": _mask(k, v),
+                "origin": o
+            } for k, (v, o) in table.items()
+        }
+        emit(
+            payload,
+            human=lambda d: "\n".join(f"{k} = {e['value']}  ({e['origin']})"
+                                      for k, e in d.items()))
+        return
     try:
         table = list_config()
     except DaemonConfigError as e:

@@ -85,3 +85,21 @@ def test_config_list_warns_on_unknown_keys(monkeypatch, tmp_path):
     assert r.exit_code == 0
     assert "typo_key" in r.output
     assert "unknown" in r.output.lower()
+
+
+def test_config_list_resolved_shows_origin(monkeypatch, tmp_path):
+    _isolate_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("MIRAGE_VERSION_ROOT", "/env/repos")
+    r = runner.invoke(app, ["list", "--resolved"])
+    assert r.exit_code == 0
+    assert "/env/repos" in r.output
+    assert "MIRAGE_VERSION_ROOT" in r.output
+
+
+def test_config_list_resolved_masks_auth_token(monkeypatch, tmp_path):
+    _isolate_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("MIRAGE_TOKEN", "supersecret")
+    r = runner.invoke(app, ["list", "--resolved"])
+    assert r.exit_code == 0
+    assert "supersecret" not in r.output
+    assert "***" in r.output
