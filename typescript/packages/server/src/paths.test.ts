@@ -156,20 +156,14 @@ describe('config.toml [daemon] layer', () => {
 
   it('env beats config for snapshot_root', () => {
     const home = mkdtempSync(join(tmpdir(), 'mir-paths-'))
-    writeFileSync(
-      join(home, 'config.toml'),
-      '[daemon]\nsnapshot_root = "/from/config/snapshots"\n',
-    )
+    writeFileSync(join(home, 'config.toml'), '[daemon]\nsnapshot_root = "/from/config/snapshots"\n')
     const env = { MIRAGE_HOME: home, MIRAGE_SNAPSHOT_ROOT: '/from/env/snapshots' }
     expect(snapshotRootPath(undefined, env)).toBe(resolve('/from/env/snapshots'))
   })
 
   it('config beats default for snapshot_root', () => {
     const home = mkdtempSync(join(tmpdir(), 'mir-paths-'))
-    writeFileSync(
-      join(home, 'config.toml'),
-      '[daemon]\nsnapshot_root = "/from/config/snapshots"\n',
-    )
+    writeFileSync(join(home, 'config.toml'), '[daemon]\nsnapshot_root = "/from/config/snapshots"\n')
     const env = { MIRAGE_HOME: home }
     expect(snapshotRootPath(undefined, env)).toBe(resolve('/from/config/snapshots'))
   })
