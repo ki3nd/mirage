@@ -19,6 +19,7 @@ ALLOWED_KEYS = frozenset({
     "url",
     "socket",
     "auth_token",
+    "allowed_hosts",
     "idle_grace_seconds",
     "port",
     "pid_file",

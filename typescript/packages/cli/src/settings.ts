@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path'
 import {
   ALLOWED_KEYS,
   DaemonConfigError,
+  DEFAULT_ALLOWED_HOSTS,
   NUMERIC_KEYS,
   defaultTokenFile,
   mirageHome,
@@ -77,6 +78,7 @@ function defaultConfigPath(env: Record<string, string | undefined> = process.env
 
 const ENV_FOR_KEY: Record<string, string> = {
   url: ENV_DAEMON_URL,
+  allowed_hosts: 'MIRAGE_ALLOWED_HOSTS',
   auth_token: ENV_TOKEN,
   idle_grace_seconds: 'MIRAGE_IDLE_GRACE_SECONDS',
   port: 'MIRAGE_DAEMON_PORT',
@@ -88,6 +90,7 @@ const ENV_FOR_KEY: Record<string, string> = {
 function defaultForKey(key: string, home: string): string {
   const defaults: Record<string, string> = {
     url: DEFAULT_DAEMON_URL,
+    allowed_hosts: DEFAULT_ALLOWED_HOSTS.join(','),
     socket: '',
     auth_token: '',
     idle_grace_seconds: '30',

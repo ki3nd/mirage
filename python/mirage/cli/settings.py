@@ -21,15 +21,17 @@ from mirage.cli.env import ENV_DAEMON_URL, ENV_TOKEN
 from mirage.server.auth import storage as auth_storage
 from mirage.server.daemon_config import (ALLOWED_KEYS, NUMERIC_KEYS,
                                          DaemonConfigError, read_daemon_table)
-from mirage.server.env import (ENV_DAEMON_PORT, ENV_IDLE_GRACE_SECONDS,
-                               ENV_PID_FILE, ENV_SNAPSHOT_ROOT,
-                               ENV_VERSION_ROOT)
+from mirage.server.env import (ENV_ALLOWED_HOSTS, ENV_DAEMON_PORT,
+                               ENV_IDLE_GRACE_SECONDS, ENV_PID_FILE,
+                               ENV_SNAPSHOT_ROOT, ENV_VERSION_ROOT)
+from mirage.server.host_validation_constants import DEFAULT_ALLOWED_HOSTS
 from mirage.server.paths import mirage_home
 
 DEFAULT_DAEMON_URL = "http://127.0.0.1:8765"
 
 _ENV_FOR_KEY = {
     "url": ENV_DAEMON_URL,
+    "allowed_hosts": ENV_ALLOWED_HOSTS,
     "auth_token": ENV_TOKEN,
     "idle_grace_seconds": ENV_IDLE_GRACE_SECONDS,
     "port": ENV_DAEMON_PORT,
@@ -100,6 +102,7 @@ def load_daemon_settings(path: Path | None = None) -> DaemonSettings:
 def _default_for_key(key: str, home: Path) -> str:
     defaults = {
         "url": DEFAULT_DAEMON_URL,
+        "allowed_hosts": ",".join(DEFAULT_ALLOWED_HOSTS),
         "socket": "",
         "auth_token": "",
         "idle_grace_seconds": "30",

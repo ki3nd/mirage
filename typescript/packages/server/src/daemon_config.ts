@@ -19,6 +19,7 @@ export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'url',
   'socket',
   'auth_token',
+  'allowed_hosts',
   'idle_grace_seconds',
   'port',
   'pid_file',
