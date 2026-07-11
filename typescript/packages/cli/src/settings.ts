@@ -85,7 +85,7 @@ const NUMERIC_KEYS: ReadonlySet<string> = new Set(['idle_grace_seconds'])
 
 function checkKey(key: string): void {
   if (!ALLOWED_KEYS.has(key)) {
-    throw new Error(`unknown config key: ${key}`)
+    throw new Error(`unknown config key: '${key}'; allowed: ${[...ALLOWED_KEYS].sort().join(', ')}`)
   }
 }
 
@@ -97,8 +97,7 @@ function formatValue(key: string, value: string): string {
 export function listConfig(path?: string): Record<string, string> {
   const p = path ?? defaultConfigPath(process.env as Record<string, string | undefined>)
   if (!existsSync(p)) return {}
-  const home = dirname(p)
-  return readDaemonTable(home)
+  return parseDaemonTable(readFileSync(p, 'utf-8'))
 }
 
 export function getConfig(key: string, path?: string): string | undefined {

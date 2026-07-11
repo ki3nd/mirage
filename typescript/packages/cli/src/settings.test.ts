@@ -234,6 +234,27 @@ describe('config writer', () => {
     }
   })
 
+  it('round-trips a backslash-containing value through setConfig/getConfig', () => {
+    const { dir, path } = tmpConfigPath()
+    try {
+      setConfig('version_root', 'C:\\repos', path)
+      expect(getConfig('version_root', path)).toBe('C:\\repos')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('round-trips a value through a non-config.toml path', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mirage-cli-config-'))
+    try {
+      const path = join(dir, 'custom.toml')
+      setConfig('url', 'http://x:1', path)
+      expect(getConfig('url', path)).toBe('http://x:1')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('rejects a key outside ALLOWED_KEYS', () => {
     const { dir, path } = tmpConfigPath()
     try {

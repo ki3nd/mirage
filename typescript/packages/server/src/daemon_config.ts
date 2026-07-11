@@ -16,7 +16,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 function parseValue(raw: string): string {
-  if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1)
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    return raw.slice(1, -1).replace(/\\(["\\])/g, '$1')
+  }
   return raw
 }
 

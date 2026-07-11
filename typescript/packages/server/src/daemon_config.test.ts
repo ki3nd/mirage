@@ -28,6 +28,16 @@ describe('parseDaemonTable', () => {
   it('returns {} for text with no [daemon] section', () => {
     expect(parseDaemonTable('[other]\nfoo = "bar"\n')).toEqual({})
   })
+
+  it('unescapes backslashes in quoted values', () => {
+    expect(parseDaemonTable('[daemon]\nversion_root = "C:\\\\repos"\n').version_root).toBe(
+      'C:\\repos',
+    )
+  })
+
+  it('unescapes escaped quotes in quoted values', () => {
+    expect(parseDaemonTable('[daemon]\nfoo = "a\\"b"\n').foo).toBe('a"b')
+  })
 })
 
 describe('readDaemonTable', () => {
