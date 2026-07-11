@@ -1,0 +1,67 @@
+# ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
+
+import typer
+
+from mirage.cli.output import emit, fail
+from mirage.cli.settings import (get_config, list_config, set_config,
+                                 unset_config)
+
+app = typer.Typer(no_args_is_help=True,
+                  help="Read and write daemon settings in config.toml.")
+
+
+@app.command("list")
+def list_cmd() -> None:
+    """Print every key in the config.toml [daemon] table."""
+    table = list_config()
+    emit(table, human=lambda d: "\n".join(f"{k} = {v}" for k, v in d.items()))
+
+
+@app.command("get")
+def get_cmd(key: str = typer.Argument(..., help="config key")) -> None:
+    """Print one [daemon] key's value from config.toml."""
+    try:
+        value = get_config(key)
+    except KeyError as e:
+        fail(str(e), exit_code=2)
+    if value is None:
+        fail(f"{key} is not set", exit_code=1)
+    emit({key: value}, human=lambda d: str(d[key]))
+
+
+@app.command("set")
+def set_cmd(
+        key: str = typer.Argument(..., help="config key"),
+        value: str = typer.Argument(..., help="value to store"),
+) -> None:
+    """Write a [daemon] key to config.toml.
+
+    Path settings take effect on the next daemon start/restart.
+    """
+    try:
+        set_config(key, value)
+    except KeyError as e:
+        fail(str(e), exit_code=2)
+    emit({key: value, "written": True}, human=lambda d: f"{key} = {value}")
+
+
+@app.command("unset")
+def unset_cmd(key: str = typer.Argument(..., help="config key")) -> None:
+    """Remove a [daemon] key from config.toml."""
+    try:
+        unset_config(key)
+    except KeyError as e:
+        fail(str(e), exit_code=2)
+    emit({key: None, "unset": True}, human=lambda d: f"unset {key}")

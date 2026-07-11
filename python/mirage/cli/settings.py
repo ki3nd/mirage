@@ -78,3 +78,139 @@ def load_daemon_settings(path: Path | None = None) -> DaemonSettings:
         if file_token:
             settings.auth_token = file_token
     return settings
+
+
+ALLOWED_KEYS = frozenset({
+    "url",
+    "socket",
+    "auth_token",
+    "idle_grace_seconds",
+    "pid_file",
+    "version_root",
+    "snapshot_root",
+})
+_NUMERIC_KEYS = frozenset({"idle_grace_seconds"})
+
+
+def _check_key(key: str) -> None:
+    if key not in ALLOWED_KEYS:
+        raise KeyError(f"unknown config key: {key!r}; allowed: "
+                       f"{', '.join(sorted(ALLOWED_KEYS))}")
+
+
+def _format_value(key: str, value: str) -> str:
+    if key in _NUMERIC_KEYS:
+        return value
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _config_lines(path: Path) -> list[str]:
+    if not path.exists():
+        return []
+    return path.read_text().splitlines()
+
+
+def list_config(path: Path | None = None) -> dict:
+    """Return the ``[daemon]`` table as written in the config file.
+
+    Args:
+        path (Path | None): config file. Defaults to ``config_path()``.
+
+    Returns:
+        dict: file-level key/value strings (no env or default folding).
+    """
+    use_path = path or config_path()
+    if not use_path.exists():
+        return {}
+    with open(use_path, "rb") as f:
+        table = tomllib.load(f).get("daemon", {})
+    return {k: str(v) for k, v in table.items()}
+
+
+def get_config(key: str, path: Path | None = None) -> str | None:
+    """Return one ``[daemon]`` key's file value, or ``None`` if unset.
+
+    Args:
+        key (str): a key in :data:`ALLOWED_KEYS`.
+        path (Path | None): config file. Defaults to ``config_path()``.
+
+    Returns:
+        str | None: the value, or ``None`` if absent.
+    """
+    _check_key(key)
+    return list_config(path).get(key)
+
+
+def set_config(key: str, value: str, path: Path | None = None) -> None:
+    """Write ``key = value`` into the ``[daemon]`` table, in place.
+
+    Creates the file and ``[daemon]`` header if missing, updates the key
+    line if present, otherwise appends it inside ``[daemon]``. Comments
+    and unrelated lines are preserved.
+
+    Args:
+        key (str): a key in :data:`ALLOWED_KEYS`.
+        value (str): the value to store.
+        path (Path | None): config file. Defaults to ``config_path()``.
+    """
+    _check_key(key)
+    use_path = path or config_path()
+    lines = _config_lines(use_path)
+    rendered = f"{key} = {_format_value(key, value)}"
+    header_idx = None
+    for i, line in enumerate(lines):
+        if line.strip() == "[daemon]":
+            header_idx = i
+            break
+    if header_idx is None:
+        if lines and lines[-1].strip() != "":
+            lines.append("")
+        lines.append("[daemon]")
+        lines.append(rendered)
+    else:
+        end = len(lines)
+        for i in range(header_idx + 1, len(lines)):
+            if lines[i].strip().startswith("["):
+                end = i
+                break
+        for i in range(header_idx + 1, end):
+            stripped = lines[i].strip()
+            if stripped.startswith("#") or "=" not in stripped:
+                continue
+            if stripped.split("=", 1)[0].strip() == key:
+                lines[i] = rendered
+                break
+        else:
+            lines.insert(end, rendered)
+    use_path.parent.mkdir(parents=True, exist_ok=True)
+    use_path.write_text("\n".join(lines) + "\n")
+
+
+def unset_config(key: str, path: Path | None = None) -> None:
+    """Remove ``key`` from the ``[daemon]`` table if present.
+
+    Args:
+        key (str): a key in :data:`ALLOWED_KEYS`.
+        path (Path | None): config file. Defaults to ``config_path()``.
+    """
+    _check_key(key)
+    use_path = path or config_path()
+    if not use_path.exists():
+        return
+    lines = _config_lines(use_path)
+    kept = []
+    in_daemon = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "[daemon]":
+            in_daemon = True
+            kept.append(line)
+            continue
+        if stripped.startswith("["):
+            in_daemon = False
+        if (in_daemon and "=" in stripped and not stripped.startswith("#")
+                and stripped.split("=", 1)[0].strip() == key):
+            continue
+        kept.append(line)
+    use_path.write_text("\n".join(kept) + "\n")

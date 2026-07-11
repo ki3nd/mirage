@@ -12,7 +12,11 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-from mirage.cli.settings import config_path, load_daemon_settings
+import pytest
+
+from mirage.cli.settings import (config_path, get_config, list_config,
+                                 load_daemon_settings, set_config,
+                                 unset_config)
 from mirage.server.env import ENV_HOME
 
 
@@ -77,3 +81,56 @@ def test_load_daemon_settings_reads_config_under_mirage_home(
      "config.toml").write_text('[daemon]\nurl = "http://127.0.0.1:9999"\n')
     settings = load_daemon_settings()
     assert settings.url == "http://127.0.0.1:9999"
+
+
+def test_set_config_creates_file(tmp_path):
+    p = tmp_path / "config.toml"
+    set_config("version_root", "/data/repos", path=p)
+    assert get_config("version_root", path=p) == "/data/repos"
+    assert '[daemon]' in p.read_text()
+
+
+def test_set_config_updates_existing_key(tmp_path):
+    p = tmp_path / "config.toml"
+    set_config("url", "http://a:1", path=p)
+    set_config("url", "http://b:2", path=p)
+    assert get_config("url", path=p) == "http://b:2"
+    assert p.read_text().count("url =") == 1
+
+
+def test_set_config_preserves_comments_and_other_keys(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[daemon]\n# keep me\nurl = "http://a:1"\n')
+    set_config("pid_file", "/tmp/x.pid", path=p)
+    text = p.read_text()
+    assert "# keep me" in text
+    assert 'url = "http://a:1"' in text
+    assert get_config("pid_file", path=p) == "/tmp/x.pid"
+
+
+def test_unset_config_removes_key(tmp_path):
+    p = tmp_path / "config.toml"
+    set_config("socket", "/tmp/s.sock", path=p)
+    unset_config("socket", path=p)
+    assert get_config("socket", path=p) is None
+
+
+def test_list_config_returns_written_keys(tmp_path):
+    p = tmp_path / "config.toml"
+    set_config("url", "http://a:1", path=p)
+    set_config("snapshot_root", "/snaps", path=p)
+    assert list_config(path=p) == {
+        "url": "http://a:1",
+        "snapshot_root": "/snaps"
+    }
+
+
+def test_set_config_rejects_unknown_key(tmp_path):
+    with pytest.raises(KeyError):
+        set_config("MIRAGE_HOME", "/x", path=tmp_path / "config.toml")
+
+
+def test_numeric_key_written_bare(tmp_path):
+    p = tmp_path / "config.toml"
+    set_config("idle_grace_seconds", "45", path=p)
+    assert "idle_grace_seconds = 45" in p.read_text()

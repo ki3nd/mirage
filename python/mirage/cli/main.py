@@ -14,6 +14,7 @@
 
 import typer
 
+from mirage.cli import config as config_module
 from mirage.cli import daemon as daemon_module
 from mirage.cli import execute as execute_module
 from mirage.cli import job as job_module
@@ -32,6 +33,7 @@ app.add_typer(job_module.app, name="job")
 app.add_typer(execute_module.app, name="execute")
 app.add_typer(provision_module.app, name="provision")
 app.add_typer(daemon_module.app, name="daemon")
+app.add_typer(config_module.app, name="config")
 
 if __name__ == "__main__":
     app()
