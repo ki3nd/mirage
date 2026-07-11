@@ -15,6 +15,46 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
+  'url',
+  'socket',
+  'auth_token',
+  'idle_grace_seconds',
+  'pid_file',
+  'version_root',
+  'snapshot_root',
+])
+export const NUMERIC_KEYS: ReadonlySet<string> = new Set(['idle_grace_seconds'])
+
+export class DaemonConfigError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DaemonConfigError'
+  }
+}
+
+export function validateDaemonTable(table: Record<string, string>): void {
+  const unknown = Object.keys(table)
+    .filter((k) => !ALLOWED_KEYS.has(k))
+    .sort()
+  if (unknown.length > 0) {
+    throw new DaemonConfigError(
+      "config.toml: the following [daemon] keys don't match any " +
+        `configuration option: ${unknown.join(', ')}`,
+    )
+  }
+  const badTypes = Object.entries(table)
+    .filter(([k, v]) => NUMERIC_KEYS.has(k) && !Number.isFinite(Number(v)))
+    .map(([k]) => k)
+    .sort()
+  if (badTypes.length > 0) {
+    throw new DaemonConfigError(
+      'config.toml: the following [daemon] keys have the wrong ' +
+        `type: ${badTypes.join(', ')}`,
+    )
+  }
+}
+
 function parseValue(raw: string): string {
   if (raw.startsWith('"') && raw.endsWith('"')) {
     return raw.slice(1, -1).replace(/\\(["\\])/g, '$1')
@@ -38,7 +78,9 @@ export function parseDaemonTable(text: string): Record<string, string> {
     }
     if (!inDaemon) continue
     const eq = trimmed.indexOf('=')
-    if (eq < 0) continue
+    if (eq < 0) {
+      throw new DaemonConfigError(`malformed config.toml [daemon] line: ${trimmed}`)
+    }
     out[trimmed.slice(0, eq).trim()] = parseValue(trimmed.slice(eq + 1).trim())
   }
   return out

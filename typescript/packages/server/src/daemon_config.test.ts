@@ -16,7 +16,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { parseDaemonTable, readDaemonTable } from './daemon_config.ts'
+import { ALLOWED_KEYS, DaemonConfigError, parseDaemonTable, readDaemonTable, validateDaemonTable } from './daemon_config.ts'
 
 describe('parseDaemonTable', () => {
   it('parses a [daemon] text block', () => {
@@ -50,5 +50,50 @@ describe('readDaemonTable', () => {
     const home = mkdtempSync(join(tmpdir(), 'mir-'))
     writeFileSync(join(home, 'config.toml'), '[daemon]\npid_file = "/tmp/p.pid"\n')
     expect(readDaemonTable(home).pid_file).toBe('/tmp/p.pid')
+  })
+})
+
+describe('validateDaemonTable', () => {
+  it('accepts known keys', () => {
+    expect(() => {
+      validateDaemonTable({ url: 'http://h:1', idle_grace_seconds: '45' })
+    }).not.toThrow()
+  })
+
+  it('rejects unknown keys naming them', () => {
+    expect(() => {
+      validateDaemonTable({ typo_key: 'x', url: 'http://h:1' })
+    }).toThrow(/typo_key/)
+  })
+
+  it('throws DaemonConfigError instances', () => {
+    expect(() => {
+      validateDaemonTable({ typo_key: 'x' })
+    }).toThrow(DaemonConfigError)
+  })
+
+  it('rejects a non-numeric idle_grace_seconds', () => {
+    expect(() => {
+      validateDaemonTable({ idle_grace_seconds: 'soon' })
+    }).toThrow(/idle_grace_seconds/)
+  })
+
+  it('exposes the shared key registry', () => {
+    expect(ALLOWED_KEYS.has('pid_file')).toBe(true)
+    expect(ALLOWED_KEYS.has('MIRAGE_HOME')).toBe(false)
+  })
+})
+
+describe('parseDaemonTable malformed lines', () => {
+  it('throws on a non key=value line inside [daemon]', () => {
+    expect(() => {
+      parseDaemonTable('[daemon]\nnot toml\n')
+    }).toThrow(/malformed/)
+  })
+
+  it('ignores junk outside [daemon]', () => {
+    expect(parseDaemonTable('junk line\n[daemon]\nurl = "http://h:1"\n')).toEqual({
+      url: 'http://h:1',
+    })
   })
 })
