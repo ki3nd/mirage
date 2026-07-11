@@ -14,9 +14,9 @@
 
 import pytest
 
-from mirage.cli.settings import (config_path, get_config, list_config,
-                                 load_daemon_settings, set_config,
-                                 unset_config)
+from mirage.cli.settings import (DEFAULT_DAEMON_URL, config_path, get_config,
+                                 list_config, load_daemon_settings,
+                                 set_config, unset_config)
 from mirage.server.daemon_config import DaemonConfigError
 from mirage.server.env import ENV_HOME
 
@@ -143,3 +143,25 @@ def test_unset_config_accepts_unknown_key(tmp_path):
     unset_config("typo_key", path=p)
     assert "typo_key" not in p.read_text()
     assert 'url = "http://a:1"' in p.read_text()
+
+
+def test_set_config_chmods_0600(tmp_path):
+    p = tmp_path / "config.toml"
+    set_config("auth_token", "s3cret", path=p)
+    assert (p.stat().st_mode & 0o777) == 0o600
+
+
+def test_unset_config_chmods_0600(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[daemon]\nurl = "http://a:1"\nsocket = "/tmp/s"\n')
+    unset_config("socket", path=p)
+    assert (p.stat().st_mode & 0o777) == 0o600
+
+
+def test_load_daemon_settings_missing_explicit_path_returns_defaults(
+        tmp_path, monkeypatch):
+    monkeypatch.delenv("MIRAGE_TOKEN", raising=False)
+    monkeypatch.delenv("MIRAGE_DAEMON_URL", raising=False)
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    settings = load_daemon_settings(path=tmp_path / "nope.toml")
+    assert settings.url == DEFAULT_DAEMON_URL

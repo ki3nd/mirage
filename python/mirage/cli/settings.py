@@ -57,8 +57,11 @@ def load_daemon_settings(path: Path | None = None) -> DaemonSettings:
     """
     use_path = path or config_path()
     if path is not None:
-        with open(use_path, "rb") as f:
-            table = tomllib.load(f).get("daemon", {})
+        if use_path.exists():
+            with open(use_path, "rb") as f:
+                table = tomllib.load(f).get("daemon", {})
+        else:
+            table = {}
     else:
         table = read_daemon_table(mirage_home())
     settings = DaemonSettings(
@@ -180,6 +183,7 @@ def set_config(key: str, value: str, path: Path | None = None) -> None:
             lines.insert(end, rendered)
     use_path.parent.mkdir(parents=True, exist_ok=True)
     use_path.write_text("\n".join(lines) + "\n")
+    os.chmod(use_path, 0o600)
 
 
 def unset_config(key: str, path: Path | None = None) -> None:
@@ -211,3 +215,4 @@ def unset_config(key: str, path: Path | None = None) -> None:
             continue
         kept.append(line)
     use_path.write_text("\n".join(kept) + "\n")
+    os.chmod(use_path, 0o600)
