@@ -17,7 +17,7 @@ import typer
 from mirage.cli.output import emit, fail
 from mirage.cli.settings import (get_config, list_config, set_config,
                                  unset_config)
-from mirage.server.daemon_config import DaemonConfigError
+from mirage.server.daemon_config import ALLOWED_KEYS, DaemonConfigError
 
 app = typer.Typer(no_args_is_help=True,
                   help="Read and write daemon settings in config.toml.")
@@ -30,6 +30,12 @@ def list_cmd() -> None:
         table = list_config()
     except DaemonConfigError as e:
         fail(str(e), exit_code=2)
+    unknown = sorted(set(table) - ALLOWED_KEYS)
+    if unknown:
+        typer.echo(
+            "warning: unknown [daemon] keys (daemon will refuse to "
+            f"start): {', '.join(unknown)}",
+            err=True)
     emit(table, human=lambda d: "\n".join(f"{k} = {v}" for k, v in d.items()))
 
 

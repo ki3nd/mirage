@@ -76,3 +76,12 @@ def test_config_list_malformed_toml_fails_cleanly(monkeypatch, tmp_path):
     assert r.exit_code == 2
     assert "malformed" in r.output
     assert "Traceback" not in r.output
+
+
+def test_config_list_warns_on_unknown_keys(monkeypatch, tmp_path):
+    _isolate_home(monkeypatch, tmp_path)
+    (tmp_path / "config.toml").write_text('[daemon]\ntypo_key = "x"\n')
+    r = runner.invoke(app, ["list"])
+    assert r.exit_code == 0
+    assert "typo_key" in r.output
+    assert "unknown" in r.output.lower()

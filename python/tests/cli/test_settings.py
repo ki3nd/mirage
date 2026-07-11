@@ -135,3 +135,11 @@ def test_numeric_key_written_bare(tmp_path):
     p = tmp_path / "config.toml"
     set_config("idle_grace_seconds", "45", path=p)
     assert "idle_grace_seconds = 45" in p.read_text()
+
+
+def test_unset_config_accepts_unknown_key(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text('[daemon]\ntypo_key = "x"\nurl = "http://a:1"\n')
+    unset_config("typo_key", path=p)
+    assert "typo_key" not in p.read_text()
+    assert 'url = "http://a:1"' in p.read_text()

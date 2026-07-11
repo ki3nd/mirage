@@ -185,11 +185,13 @@ def set_config(key: str, value: str, path: Path | None = None) -> None:
 def unset_config(key: str, path: Path | None = None) -> None:
     """Remove ``key`` from the ``[daemon]`` table if present.
 
+    Unknown keys are allowed so a file the daemon refuses to load can
+    be repaired from the CLI.
+
     Args:
-        key (str): a key in :data:`ALLOWED_KEYS`.
+        key (str): any key present in the file.
         path (Path | None): config file. Defaults to ``config_path()``.
     """
-    _check_key(key)
     use_path = path or config_path()
     if not use_path.exists():
         return
