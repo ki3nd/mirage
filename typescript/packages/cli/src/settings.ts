@@ -68,11 +68,11 @@ export function loadDaemonSettings(options: LoadOptions = {}): DaemonSettings {
   return settings
 }
 
-export function defaultConfigPath(env: Record<string, string | undefined> = process.env): string {
+function defaultConfigPath(env: Record<string, string | undefined> = process.env): string {
   return join(mirageHome(env), 'config.toml')
 }
 
-export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
+const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'url',
   'socket',
   'auth_token',
@@ -162,7 +162,12 @@ export function unsetConfig(key: string, path?: string): void {
       continue
     }
     if (t.startsWith('[')) inDaemon = false
-    if (inDaemon && t.includes('=') && !t.startsWith('#') && t.slice(0, t.indexOf('=')).trim() === key)
+    if (
+      inDaemon &&
+      t.includes('=') &&
+      !t.startsWith('#') &&
+      t.slice(0, t.indexOf('=')).trim() === key
+    )
       continue
     kept.push(line)
   }
