@@ -27,16 +27,16 @@ const SAFE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/
 
 export function mirageHome(env: Record<string, string | undefined> = process.env): string {
   const override = env[ENV_HOME]
-  return override !== undefined && override !== '' ? override : join(homedir(), '.mirage')
+  return override !== undefined && override !== '' ? resolve(override) : join(homedir(), '.mirage')
 }
 
 export function pidFilePath(
   explicit?: string,
   env: Record<string, string | undefined> = process.env,
 ): string {
-  if (explicit !== undefined) return explicit
+  if (explicit !== undefined) return resolve(explicit)
   const override = env[ENV_PID_FILE]
-  if (override !== undefined && override !== '') return override
+  if (override !== undefined && override !== '') return resolve(override)
   return join(mirageHome(env), 'daemon.pid')
 }
 

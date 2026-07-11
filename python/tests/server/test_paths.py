@@ -95,3 +95,21 @@ def test_roots_follow_mirage_home(monkeypatch, tmp_path):
     monkeypatch.setenv(ENV_HOME, str(tmp_path))
     assert default_version_root() == tmp_path / "repos"
     assert default_snapshot_root() == tmp_path / "snapshots"
+
+
+def test_mirage_home_relative_env_is_absolutized(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(ENV_HOME, "mhome")
+    assert mirage_home() == tmp_path / "mhome"
+
+
+def test_pid_file_relative_env_is_absolutized(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(ENV_PID_FILE, "rel/daemon.pid")
+    assert pid_file_path() == tmp_path / "rel" / "daemon.pid"
+
+
+def test_pid_file_explicit_relative_is_absolutized(monkeypatch, tmp_path):
+    monkeypatch.delenv(ENV_PID_FILE, raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert pid_file_path("x.pid") == tmp_path / "x.pid"

@@ -26,7 +26,7 @@ import { registerJobsRoutes } from './routers/jobs.ts'
 import { registerSessionsRoutes } from './routers/sessions.ts'
 import { registerVersionsRoutes } from './routers/versions.ts'
 import { registerWorkspacesRoutes } from './routers/workspaces.ts'
-import { defaultSnapshotRoot, defaultVersionRoot } from './paths.ts'
+import { defaultSnapshotRoot, defaultVersionRoot, pidFilePath } from './paths.ts'
 import { LocalBackend } from './version/backend.ts'
 
 export interface BuildAppOptions {
@@ -36,6 +36,7 @@ export interface BuildAppOptions {
   authConfig?: AuthConfig
   versionRoot?: string
   snapshotRoot?: string
+  pidFile?: string
 }
 
 export type MirageApp = ReturnType<typeof buildApp>
@@ -56,6 +57,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   const jobs = new JobTable()
   const versionBackend = new LocalBackend(options.versionRoot ?? defaultVersionRoot())
   const snapshotRoot = options.snapshotRoot ?? defaultSnapshotRoot()
+  const pidFile = pidFilePath(options.pidFile)
   const app = Fastify({ logger: false })
   void app.register(rateLimit, {
     global: true,
@@ -89,5 +91,5 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.addHook('onClose', async () => {
     await registry.closeAll()
   })
-  return Object.assign(app, { registry, jobs, versionBackend })
+  return Object.assign(app, { registry, jobs, versionBackend, pidFile })
 }

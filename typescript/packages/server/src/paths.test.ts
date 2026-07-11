@@ -13,7 +13,7 @@
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 import { homedir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   PathOutsideRootError,
@@ -109,5 +109,21 @@ describe('root defaults follow mirageHome', () => {
     const env = { MIRAGE_HOME: '/data/mirage' }
     expect(defaultVersionRoot(env)).toBe(join('/data/mirage', 'repos'))
     expect(defaultSnapshotRoot(env)).toBe(join('/data/mirage', 'snapshots'))
+  })
+})
+
+describe('relative overrides are absolutized', () => {
+  it('relative MIRAGE_HOME resolves against cwd', () => {
+    expect(mirageHome({ MIRAGE_HOME: 'mhome' })).toBe(resolve('mhome'))
+  })
+
+  it('relative MIRAGE_PID_FILE resolves against cwd', () => {
+    expect(pidFilePath(undefined, { MIRAGE_PID_FILE: 'rel/daemon.pid' })).toBe(
+      resolve('rel/daemon.pid'),
+    )
+  })
+
+  it('relative explicit pid path resolves against cwd', () => {
+    expect(pidFilePath('x.pid', {})).toBe(resolve('x.pid'))
   })
 })

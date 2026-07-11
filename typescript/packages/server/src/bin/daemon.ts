@@ -22,7 +22,6 @@ import {
   ENV_SNAPSHOT_ROOT,
   ENV_VERSION_ROOT,
 } from '../env.ts'
-import { pidFilePath } from '../paths.ts'
 
 const DEFAULT_PORT = 8765
 
@@ -44,15 +43,14 @@ export function buildDaemonOpts(env: Record<string, string | undefined>): Daemon
   return { port, opts }
 }
 
-function writePidFile(): void {
-  const p = pidFilePath()
+function writePidFile(p: string): void {
   mkdirSync(dirname(p), { recursive: true })
   writeFileSync(p, String(process.pid))
 }
 
-function removePidFile(): void {
+function removePidFile(p: string): void {
   try {
-    unlinkSync(pidFilePath())
+    unlinkSync(p)
   } catch {
     // file already gone; nothing to clean up.
   }
@@ -72,7 +70,7 @@ async function main(): Promise<void> {
         console.error('daemon close error:', err)
       })
       .finally(() => {
-        removePidFile()
+        removePidFile(app.pidFile)
         process.exit(0)
       })
   }
@@ -80,7 +78,7 @@ async function main(): Promise<void> {
   process.on('SIGTERM', triggerExit)
   process.on('SIGINT', triggerExit)
   await app.listen({ port, host: '127.0.0.1' })
-  writePidFile()
+  writePidFile(app.pidFile)
 }
 
 main().catch((err: unknown) => {
