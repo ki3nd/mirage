@@ -12,7 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -21,6 +21,7 @@ import {
   getConfig,
   listConfig,
   loadDaemonSettings,
+  resolvedConfig,
   setConfig,
   unsetConfig,
 } from './settings.ts'
@@ -266,9 +267,80 @@ describe('config writer', () => {
       }).toThrow(/unknown config key/)
       expect(() => {
         unsetConfig('MIRAGE_HOME', path)
-      }).toThrow(/unknown config key/)
+      }).not.toThrow()
     } finally {
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('config writer hardening', () => {
+  it('setConfig chmods the file to 0600', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mirage-cli-config-'))
+    try {
+      const path = join(dir, 'config.toml')
+      setConfig('auth_token', 's3cret', path)
+      expect(statSync(path).mode & 0o777).toBe(0o600)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('unsetConfig chmods the file to 0600', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mirage-cli-config-'))
+    try {
+      const path = join(dir, 'config.toml')
+      writeFileSync(path, '[daemon]\nurl = "http://a:1"\nsocket = "/tmp/s"\n')
+      unsetConfig('socket', path)
+      expect(statSync(path).mode & 0o777).toBe(0o600)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('unsetConfig accepts unknown keys so a broken file can be repaired', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mirage-cli-config-'))
+    try {
+      const path = join(dir, 'config.toml')
+      writeFileSync(path, '[daemon]\ntypo_key = "x"\nurl = "http://a:1"\n')
+      unsetConfig('typo_key', path)
+      const text = readFileSync(path, 'utf-8')
+      expect(text).not.toContain('typo_key')
+      expect(text).toContain('url = "http://a:1"')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('resolvedConfig', () => {
+  it('reports env, file, and default origins', () => {
+    const home = mkdtempSync(join(tmpdir(), 'mirage-cli-resolved-'))
+    try {
+      writeFileSync(
+        join(home, 'config.toml'),
+        '[daemon]\nversion_root = "/file/repos"\nurl = "http://f:1"\n',
+      )
+      const env = { MIRAGE_HOME: home, MIRAGE_VERSION_ROOT: '/env/repos' }
+      const resolved = resolvedConfig(env)
+      expect(resolved.version_root).toEqual(['/env/repos', 'env MIRAGE_VERSION_ROOT'])
+      expect(resolved.url).toEqual(['http://f:1', 'file'])
+      expect(resolved.snapshot_root).toEqual([join(home, 'snapshots'), 'default'])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  it('yields defaults when nothing is set', () => {
+    const home = mkdtempSync(join(tmpdir(), 'mirage-cli-resolved-'))
+    try {
+      const env = { MIRAGE_HOME: home }
+      const resolved = resolvedConfig(env)
+      expect(resolved.url).toEqual([DEFAULT_DAEMON_URL, 'default'])
+      expect(resolved.pid_file).toEqual([join(home, 'daemon.pid'), 'default'])
+      expect(resolved.idle_grace_seconds).toEqual(['30', 'default'])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
     }
   })
 })

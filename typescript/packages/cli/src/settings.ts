@@ -12,9 +12,12 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
+  ALLOWED_KEYS,
+  DaemonConfigError,
+  NUMERIC_KEYS,
   defaultTokenFile,
   mirageHome,
   parseDaemonTable,
@@ -72,20 +75,54 @@ function defaultConfigPath(env: Record<string, string | undefined> = process.env
   return join(mirageHome(env), 'config.toml')
 }
 
-const ALLOWED_KEYS: ReadonlySet<string> = new Set([
-  'url',
-  'socket',
-  'auth_token',
-  'idle_grace_seconds',
-  'pid_file',
-  'version_root',
-  'snapshot_root',
-])
-const NUMERIC_KEYS: ReadonlySet<string> = new Set(['idle_grace_seconds'])
+const ENV_FOR_KEY: Record<string, string> = {
+  url: ENV_DAEMON_URL,
+  auth_token: ENV_TOKEN,
+  idle_grace_seconds: 'MIRAGE_IDLE_GRACE_SECONDS',
+  pid_file: 'MIRAGE_PID_FILE',
+  version_root: 'MIRAGE_VERSION_ROOT',
+  snapshot_root: 'MIRAGE_SNAPSHOT_ROOT',
+}
+
+function defaultForKey(key: string, home: string): string {
+  const defaults: Record<string, string> = {
+    url: DEFAULT_DAEMON_URL,
+    socket: '',
+    auth_token: '',
+    idle_grace_seconds: '30',
+    pid_file: join(home, 'daemon.pid'),
+    version_root: join(home, 'repos'),
+    snapshot_root: join(home, 'snapshots'),
+  }
+  return defaults[key] ?? ''
+}
+
+export function resolvedConfig(
+  env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
+): Record<string, [string, string]> {
+  const home = mirageHome(env)
+  const table = readDaemonTable(home)
+  const out: Record<string, [string, string]> = {}
+  for (const key of [...ALLOWED_KEYS].sort()) {
+    const envName = ENV_FOR_KEY[key]
+    const envValue = envName !== undefined ? env[envName] : undefined
+    const fileValue = table[key]
+    if (envValue !== undefined && envValue !== '') {
+      out[key] = [envValue, `env ${envName}`]
+    } else if (fileValue !== undefined && fileValue !== '') {
+      out[key] = [fileValue, 'file']
+    } else {
+      out[key] = [defaultForKey(key, home), 'default']
+    }
+  }
+  return out
+}
 
 function checkKey(key: string): void {
   if (!ALLOWED_KEYS.has(key)) {
-    throw new Error(`unknown config key: '${key}'; allowed: ${[...ALLOWED_KEYS].sort().join(', ')}`)
+    throw new DaemonConfigError(
+      `unknown config key: '${key}'; allowed: ${[...ALLOWED_KEYS].sort().join(', ')}`,
+    )
   }
 }
 
@@ -143,10 +180,10 @@ export function setConfig(key: string, value: string, path?: string): void {
   }
   mkdirSync(dirname(p), { recursive: true })
   writeFileSync(p, lines.join('\n') + '\n')
+  chmodSync(p, 0o600)
 }
 
 export function unsetConfig(key: string, path?: string): void {
-  checkKey(key)
   const p = path ?? defaultConfigPath(process.env as Record<string, string | undefined>)
   if (!existsSync(p)) return
   const lines = readFileSync(p, 'utf-8').split('\n')
@@ -171,4 +208,5 @@ export function unsetConfig(key: string, path?: string): void {
     kept.push(line)
   }
   writeFileSync(p, kept.join('\n') + '\n')
+  chmodSync(p, 0o600)
 }

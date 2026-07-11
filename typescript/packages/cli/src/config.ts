@@ -12,9 +12,15 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import { ALLOWED_KEYS, DaemonConfigError } from '@struktoai/mirage-server'
 import type { Command } from 'commander'
 import { emit, fail } from './output.ts'
-import { getConfig, listConfig, setConfig, unsetConfig } from './settings.ts'
+import { getConfig, listConfig, resolvedConfig, setConfig, unsetConfig } from './settings.ts'
+
+function mask(key: string, value: string): string {
+  if (key === 'auth_token' && value !== '') return '***'
+  return value
+}
 
 export function registerConfigCommands(program: Command): void {
   const config = program
@@ -23,9 +29,44 @@ export function registerConfigCommands(program: Command): void {
 
   config
     .command('list')
+    .option('--resolved', 'show effective values and their origins')
     .description('Print the config.toml [daemon] table.')
-    .action(() => {
-      const table = listConfig()
+    .action((opts: { resolved?: boolean }) => {
+      if (opts.resolved === true) {
+        let resolved: Record<string, [string, string]>
+        try {
+          resolved = resolvedConfig()
+        } catch (e) {
+          fail((e as Error).message, 2)
+          return
+        }
+        const payload = Object.fromEntries(
+          Object.entries(resolved).map(([k, [v, o]]) => [k, { value: mask(k, v), origin: o }]),
+        )
+        emit(payload, (d: Record<string, { value: string; origin: string }>) =>
+          Object.entries(d)
+            .map(([k, e]) => `${k} = ${e.value}  (${e.origin})`)
+            .join('\n'),
+        )
+        return
+      }
+      let table: Record<string, string>
+      try {
+        table = listConfig()
+      } catch (e) {
+        if (!(e instanceof DaemonConfigError)) throw e
+        fail(e.message, 2)
+        return
+      }
+      const unknown = Object.keys(table)
+        .filter((k) => !ALLOWED_KEYS.has(k))
+        .sort()
+      if (unknown.length > 0) {
+        process.stderr.write(
+          'warning: unknown [daemon] keys (daemon will refuse to ' +
+            `start): ${unknown.join(', ')}\n`,
+        )
+      }
       emit(table, (d: Record<string, string>) =>
         Object.entries(d)
           .map(([k, v]) => `${k} = ${v}`)

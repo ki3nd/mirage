@@ -16,6 +16,7 @@
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { buildApp, type BuildAppOptions, type MirageApp } from '../app.ts'
+import { DaemonConfigError } from '../daemon_config.ts'
 import { ENV_DAEMON_PORT, ENV_IDLE_GRACE_SECONDS } from '../env.ts'
 
 const DEFAULT_PORT = 8765
@@ -71,6 +72,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
+  if (err instanceof DaemonConfigError) {
+    console.error(err.message)
+    process.exit(2)
+  }
   console.error(err)
   process.exit(1)
 })

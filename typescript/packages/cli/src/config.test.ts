@@ -12,7 +12,7 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Command } from 'commander'
@@ -110,12 +110,64 @@ describe('registerConfigCommands', () => {
     expect(getResult.stderr).toContain('auth_token is not set')
   })
 
-  it('rejects an unknown key on get/set/unset with exit code 2', async () => {
+  it('rejects an unknown key on get/set with exit code 2', async () => {
     const getResult = await run(['config', 'get', 'MIRAGE_HOME'])
     expect(getResult.exitCode).toBe(2)
     const setResult = await run(['config', 'set', 'MIRAGE_HOME', '/tmp'])
     expect(setResult.exitCode).toBe(2)
-    const unsetResult = await run(['config', 'unset', 'MIRAGE_HOME'])
-    expect(unsetResult.exitCode).toBe(2)
+  })
+
+  it('unset accepts an unknown key so a broken file can be repaired', async () => {
+    const unsetResult = await run(['config', 'unset', 'typo_key'])
+    expect(unsetResult.exitCode).toBe(0)
+  })
+})
+
+describe('config list hardening', () => {
+  let dir: string
+  let originalHome: string | undefined
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'mirage-cli-config-cmd2-'))
+    originalHome = process.env.MIRAGE_HOME
+    process.env.MIRAGE_HOME = dir
+  })
+
+  afterEach(() => {
+    if (originalHome === undefined) delete process.env.MIRAGE_HOME
+    else process.env.MIRAGE_HOME = originalHome
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('warns on unknown keys without failing', async () => {
+    writeFileSync(join(dir, 'config.toml'), '[daemon]\ntypo_key = "x"\n')
+    const r = await run(['config', 'list'])
+    expect(r.exitCode).toBe(0)
+    expect(r.stderr).toContain('typo_key')
+    expect(r.stderr.toLowerCase()).toContain('unknown')
+  })
+
+  it('fails cleanly on a malformed file', async () => {
+    writeFileSync(join(dir, 'config.toml'), '[daemon]\nnot toml\n')
+    const r = await run(['config', 'list'])
+    expect(r.exitCode).toBe(2)
+    expect(r.stderr).toContain('malformed')
+  })
+
+  it('--resolved shows effective values with origins', async () => {
+    writeFileSync(join(dir, 'config.toml'), '[daemon]\nversion_root = "/file/repos"\n')
+    const r = await run(['config', 'list', '--resolved'])
+    expect(r.exitCode).toBe(0)
+    const parsed = JSON.parse(r.stdout) as Record<string, { value: string; origin: string }>
+    expect(parsed.version_root).toEqual({ value: '/file/repos', origin: 'file' })
+    expect(parsed.pid_file?.origin).toBe('default')
+  })
+
+  it('--resolved masks auth_token', async () => {
+    writeFileSync(join(dir, 'config.toml'), '[daemon]\nauth_token = "supersecret"\n')
+    const r = await run(['config', 'list', '--resolved'])
+    expect(r.exitCode).toBe(0)
+    expect(r.stdout).not.toContain('supersecret')
+    expect(r.stdout).toContain('***')
   })
 })

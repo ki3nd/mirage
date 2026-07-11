@@ -16,7 +16,14 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, openSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
-import { AuthMode, defaultTokenFile, ensureTokenFile, mirageHome } from '@struktoai/mirage-server'
+import {
+  AuthMode,
+  defaultTokenFile,
+  ensureTokenFile,
+  mirageHome,
+  readDaemonTable,
+  validateDaemonTable,
+} from '@struktoai/mirage-server'
 
 import { ENV_AUTH_MODE, ENV_AUTH_TOKEN, ENV_DAEMON_PORT, ENV_IDLE_GRACE_SECONDS } from './env.ts'
 import type { DaemonSettings } from './settings.ts'
@@ -121,6 +128,7 @@ export class DaemonClient {
   }
 
   private spawnDaemon(): void {
+    validateDaemonTable(readDaemonTable(mirageHome()))
     const env: Record<string, string> = {}
     for (const [k, v] of Object.entries(process.env)) {
       if (typeof v === 'string') env[k] = v
