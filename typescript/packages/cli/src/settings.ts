@@ -12,7 +12,8 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import {
   defaultTokenFile,
   mirageHome,
@@ -65,4 +66,104 @@ export function loadDaemonSettings(options: LoadOptions = {}): DaemonSettings {
     }
   }
   return settings
+}
+
+export function defaultConfigPath(env: Record<string, string | undefined> = process.env): string {
+  return join(mirageHome(env), 'config.toml')
+}
+
+export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
+  'url',
+  'socket',
+  'auth_token',
+  'idle_grace_seconds',
+  'pid_file',
+  'version_root',
+  'snapshot_root',
+])
+const NUMERIC_KEYS: ReadonlySet<string> = new Set(['idle_grace_seconds'])
+
+function checkKey(key: string): void {
+  if (!ALLOWED_KEYS.has(key)) {
+    throw new Error(`unknown config key: ${key}`)
+  }
+}
+
+function formatValue(key: string, value: string): string {
+  if (NUMERIC_KEYS.has(key)) return value
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+export function listConfig(path?: string): Record<string, string> {
+  const p = path ?? defaultConfigPath(process.env as Record<string, string | undefined>)
+  if (!existsSync(p)) return {}
+  const home = dirname(p)
+  return readDaemonTable(home)
+}
+
+export function getConfig(key: string, path?: string): string | undefined {
+  checkKey(key)
+  return listConfig(path)[key]
+}
+
+export function setConfig(key: string, value: string, path?: string): void {
+  checkKey(key)
+  const p = path ?? defaultConfigPath(process.env as Record<string, string | undefined>)
+  const lines = existsSync(p) ? readFileSync(p, 'utf-8').split('\n') : []
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  const rendered = `${key} = ${formatValue(key, value)}`
+  let headerIdx = -1
+  for (let i = 0; i < lines.length; i++) {
+    if ((lines[i] ?? '').trim() === '[daemon]') {
+      headerIdx = i
+      break
+    }
+  }
+  if (headerIdx < 0) {
+    if (lines.length > 0 && (lines[lines.length - 1] ?? '').trim() !== '') lines.push('')
+    lines.push('[daemon]', rendered)
+  } else {
+    let end = lines.length
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if ((lines[i] ?? '').trim().startsWith('[')) {
+        end = i
+        break
+      }
+    }
+    let replaced = false
+    for (let i = headerIdx + 1; i < end; i++) {
+      const t = (lines[i] ?? '').trim()
+      if (t.startsWith('#') || !t.includes('=')) continue
+      if (t.slice(0, t.indexOf('=')).trim() === key) {
+        lines[i] = rendered
+        replaced = true
+        break
+      }
+    }
+    if (!replaced) lines.splice(end, 0, rendered)
+  }
+  mkdirSync(dirname(p), { recursive: true })
+  writeFileSync(p, lines.join('\n') + '\n')
+}
+
+export function unsetConfig(key: string, path?: string): void {
+  checkKey(key)
+  const p = path ?? defaultConfigPath(process.env as Record<string, string | undefined>)
+  if (!existsSync(p)) return
+  const lines = readFileSync(p, 'utf-8').split('\n')
+  const kept: string[] = []
+  let inDaemon = false
+  for (const line of lines) {
+    const t = line.trim()
+    if (t === '[daemon]') {
+      inDaemon = true
+      kept.push(line)
+      continue
+    }
+    if (t.startsWith('[')) inDaemon = false
+    if (inDaemon && t.includes('=') && !t.startsWith('#') && t.slice(0, t.indexOf('=')).trim() === key)
+      continue
+    kept.push(line)
+  }
+  writeFileSync(p, kept.join('\n'))
 }
