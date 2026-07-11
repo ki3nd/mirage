@@ -17,6 +17,7 @@ import typer
 from mirage.cli.output import emit, fail
 from mirage.cli.settings import (get_config, list_config, set_config,
                                  unset_config)
+from mirage.server.daemon_config import DaemonConfigError
 
 app = typer.Typer(no_args_is_help=True,
                   help="Read and write daemon settings in config.toml.")
@@ -34,7 +35,7 @@ def get_cmd(key: str = typer.Argument(..., help="config key")) -> None:
     """Print one [daemon] key's value from config.toml."""
     try:
         value = get_config(key)
-    except KeyError as e:
+    except DaemonConfigError as e:
         fail(str(e), exit_code=2)
     if value is None:
         fail(f"{key} is not set", exit_code=1)
@@ -52,7 +53,7 @@ def set_cmd(
     """
     try:
         set_config(key, value)
-    except KeyError as e:
+    except DaemonConfigError as e:
         fail(str(e), exit_code=2)
     emit({key: value, "written": True}, human=lambda d: f"{key} = {value}")
 
@@ -62,6 +63,6 @@ def unset_cmd(key: str = typer.Argument(..., help="config key")) -> None:
     """Remove a [daemon] key from config.toml."""
     try:
         unset_config(key)
-    except KeyError as e:
+    except DaemonConfigError as e:
         fail(str(e), exit_code=2)
     emit({key: None, "unset": True}, human=lambda d: f"unset {key}")

@@ -17,6 +17,7 @@ import pytest
 from mirage.cli.settings import (config_path, get_config, list_config,
                                  load_daemon_settings, set_config,
                                  unset_config)
+from mirage.server.daemon_config import DaemonConfigError
 from mirage.server.env import ENV_HOME
 
 
@@ -126,7 +127,7 @@ def test_list_config_returns_written_keys(tmp_path):
 
 
 def test_set_config_rejects_unknown_key(tmp_path):
-    with pytest.raises(KeyError):
+    with pytest.raises(DaemonConfigError, match="unknown config key"):
         set_config("MIRAGE_HOME", "/x", path=tmp_path / "config.toml")
 
 

@@ -19,7 +19,8 @@ from pathlib import Path
 
 from mirage.cli.env import ENV_DAEMON_URL, ENV_TOKEN
 from mirage.server.auth import storage as auth_storage
-from mirage.server.daemon_config import read_daemon_table
+from mirage.server.daemon_config import (ALLOWED_KEYS, NUMERIC_KEYS,
+                                         DaemonConfigError, read_daemon_table)
 from mirage.server.paths import mirage_home
 
 DEFAULT_DAEMON_URL = "http://127.0.0.1:8765"
@@ -80,26 +81,14 @@ def load_daemon_settings(path: Path | None = None) -> DaemonSettings:
     return settings
 
 
-ALLOWED_KEYS = frozenset({
-    "url",
-    "socket",
-    "auth_token",
-    "idle_grace_seconds",
-    "pid_file",
-    "version_root",
-    "snapshot_root",
-})
-_NUMERIC_KEYS = frozenset({"idle_grace_seconds"})
-
-
 def _check_key(key: str) -> None:
     if key not in ALLOWED_KEYS:
-        raise KeyError(f"unknown config key: {key!r}; allowed: "
-                       f"{', '.join(sorted(ALLOWED_KEYS))}")
+        raise DaemonConfigError(f"unknown config key: {key!r}; allowed: "
+                                f"{', '.join(sorted(ALLOWED_KEYS))}")
 
 
 def _format_value(key: str, value: str) -> str:
-    if key in _NUMERIC_KEYS:
+    if key in NUMERIC_KEYS:
         return value
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'

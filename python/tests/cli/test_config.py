@@ -58,4 +58,12 @@ def test_config_get_unset_exits_nonzero(monkeypatch, tmp_path):
 def test_config_set_rejects_unknown_key(monkeypatch, tmp_path):
     _isolate_home(monkeypatch, tmp_path)
     r = runner.invoke(app, ["set", "MIRAGE_HOME", "/x"])
-    assert r.exit_code != 0
+    assert r.exit_code == 2
+
+
+def test_config_set_unknown_key_message_is_clean(monkeypatch, tmp_path):
+    _isolate_home(monkeypatch, tmp_path)
+    r = runner.invoke(app, ["set", "nope", "/x"])
+    assert r.exit_code == 2
+    assert "unknown config key" in r.output
+    assert not r.output.strip().startswith("'")
