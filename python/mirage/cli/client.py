@@ -23,6 +23,8 @@ from mirage.cli.env import ENV_AUTH_MODE, ENV_AUTH_TOKEN
 from mirage.cli.settings import DaemonSettings, load_daemon_settings
 from mirage.server.auth import AuthMode
 from mirage.server.auth import storage as auth_storage
+from mirage.server.daemon_config import (read_daemon_table,
+                                         validate_daemon_table)
 from mirage.server.paths import mirage_home
 
 
@@ -99,6 +101,7 @@ class DaemonClient:
             f"{startup_timeout:.1f}s")
 
     def _spawn_daemon(self) -> None:
+        validate_daemon_table(read_daemon_table(mirage_home()))
         port = self._port_from_url()
         env = dict(os.environ)
         if not self.settings.auth_token:

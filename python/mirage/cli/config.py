@@ -26,7 +26,10 @@ app = typer.Typer(no_args_is_help=True,
 @app.command("list")
 def list_cmd() -> None:
     """Print every key in the config.toml [daemon] table."""
-    table = list_config()
+    try:
+        table = list_config()
+    except DaemonConfigError as e:
+        fail(str(e), exit_code=2)
     emit(table, human=lambda d: "\n".join(f"{k} = {v}" for k, v in d.items()))
 
 

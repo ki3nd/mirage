@@ -12,8 +12,11 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import pytest
+
 from mirage.cli.client import DaemonClient
 from mirage.cli.settings import DaemonSettings
+from mirage.server.daemon_config import DaemonConfigError
 from mirage.server.env import ENV_HOME
 
 
@@ -30,3 +33,16 @@ def test_spawn_daemon_uses_mirage_home_for_log_and_token(
     assert (tmp_path / "daemon.log").exists()
     assert (tmp_path / "auth_token").exists()
     assert client.settings.auth_token
+
+
+def test_spawn_daemon_rejects_bad_config(tmp_path, monkeypatch):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    monkeypatch.delenv("MIRAGE_AUTH_MODE", raising=False)
+    (tmp_path / "config.toml").write_text('[daemon]\ntypo_key = "x"\n')
+    spawned = []
+    monkeypatch.setattr("mirage.cli.client.subprocess.Popen",
+                        lambda *args, **kwargs: spawned.append(kwargs))
+    with DaemonClient(DaemonSettings()) as client:
+        with pytest.raises(DaemonConfigError, match="typo_key"):
+            client._spawn_daemon()
+    assert not spawned

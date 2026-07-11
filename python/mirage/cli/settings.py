@@ -108,12 +108,18 @@ def list_config(path: Path | None = None) -> dict:
 
     Returns:
         dict: file-level key/value strings (no env or default folding).
+
+    Raises:
+        DaemonConfigError: the file exists but is not valid TOML.
     """
     use_path = path or config_path()
     if not use_path.exists():
         return {}
-    with open(use_path, "rb") as f:
-        table = tomllib.load(f).get("daemon", {})
+    try:
+        with open(use_path, "rb") as f:
+            table = tomllib.load(f).get("daemon", {})
+    except tomllib.TOMLDecodeError as e:
+        raise DaemonConfigError(f"malformed {use_path}: {e}") from e
     return {k: str(v) for k, v in table.items()}
 
 

@@ -67,3 +67,12 @@ def test_config_set_unknown_key_message_is_clean(monkeypatch, tmp_path):
     assert r.exit_code == 2
     assert "unknown config key" in r.output
     assert not r.output.strip().startswith("'")
+
+
+def test_config_list_malformed_toml_fails_cleanly(monkeypatch, tmp_path):
+    _isolate_home(monkeypatch, tmp_path)
+    (tmp_path / "config.toml").write_text("[daemon\nnot toml")
+    r = runner.invoke(app, ["list"])
+    assert r.exit_code == 2
+    assert "malformed" in r.output
+    assert "Traceback" not in r.output
