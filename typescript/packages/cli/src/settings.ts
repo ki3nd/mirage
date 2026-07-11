@@ -151,6 +151,7 @@ export function unsetConfig(key: string, path?: string): void {
   const p = path ?? defaultConfigPath(process.env as Record<string, string | undefined>)
   if (!existsSync(p)) return
   const lines = readFileSync(p, 'utf-8').split('\n')
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
   const kept: string[] = []
   let inDaemon = false
   for (const line of lines) {
@@ -165,5 +166,5 @@ export function unsetConfig(key: string, path?: string): void {
       continue
     kept.push(line)
   }
-  writeFileSync(p, kept.join('\n'))
+  writeFileSync(p, kept.join('\n') + '\n')
 }

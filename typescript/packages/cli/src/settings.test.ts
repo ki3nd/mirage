@@ -179,6 +179,17 @@ describe('config writer', () => {
     }
   })
 
+  it('unsetConfig leaves exactly one trailing newline', () => {
+    const { dir, path } = tmpConfigPath()
+    try {
+      writeFileSync(path, '[daemon]\nurl = "http://old:1"\nsocket = "/tmp/s"\n')
+      unsetConfig('socket', path)
+      expect(readFileSync(path, 'utf-8')).toBe('[daemon]\nurl = "http://old:1"\n')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('unsetConfig is a no-op when the file is absent', () => {
     const { dir, path } = tmpConfigPath()
     try {
