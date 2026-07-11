@@ -12,9 +12,13 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import { defaultTokenFile, mirageHome, readTokenFile } from '@struktoai/mirage-server'
+import { dirname } from 'node:path'
+import {
+  defaultTokenFile,
+  mirageHome,
+  readDaemonTable,
+  readTokenFile,
+} from '@struktoai/mirage-server'
 
 import { ENV_DAEMON_URL, ENV_TOKEN } from './env.ts'
 
@@ -32,44 +36,12 @@ export interface LoadOptions {
   tokenFile?: string
 }
 
-function defaultConfigPath(env: Record<string, string | undefined>): string {
-  return join(mirageHome(env), 'config.toml')
-}
-
-function parseValue(raw: string): string {
-  if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1)
-  return raw
-}
-
-function readDaemonTable(path: string): Record<string, string> {
-  if (!existsSync(path)) return {}
-  const text = readFileSync(path, 'utf-8')
-  const out: Record<string, string> = {}
-  let inDaemon = false
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim()
-    if (trimmed === '' || trimmed.startsWith('#')) continue
-    if (trimmed === '[daemon]') {
-      inDaemon = true
-      continue
-    }
-    if (trimmed.startsWith('[')) {
-      inDaemon = false
-      continue
-    }
-    if (!inDaemon) continue
-    const eq = trimmed.indexOf('=')
-    if (eq < 0) continue
-    const key = trimmed.slice(0, eq).trim()
-    out[key] = parseValue(trimmed.slice(eq + 1).trim())
-  }
-  return out
-}
-
 export function loadDaemonSettings(options: LoadOptions = {}): DaemonSettings {
   const env = options.env ?? (process.env as Record<string, string | undefined>)
-  const path = options.configPath ?? defaultConfigPath(env)
-  const table = readDaemonTable(path)
+  const table =
+    options.configPath !== undefined
+      ? readDaemonTable(dirname(options.configPath))
+      : readDaemonTable(mirageHome(env))
   const settings: DaemonSettings = {
     url: table.url ?? DEFAULT_DAEMON_URL,
     authToken: table.auth_token ?? '',
