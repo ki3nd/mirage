@@ -169,3 +169,26 @@ def test_snapshot_root_default_when_unset(tmp_path, monkeypatch):
     monkeypatch.setenv("MIRAGE_HOME", str(tmp_path))
     monkeypatch.delenv("MIRAGE_SNAPSHOT_ROOT", raising=False)
     assert snapshot_root_path() == tmp_path / "snapshots"
+
+
+def test_version_root_explicit_beats_env(monkeypatch):
+    monkeypatch.setenv("MIRAGE_VERSION_ROOT", "/env/repos")
+    assert version_root_path("/explicit/repos") == Path("/explicit/repos")
+
+
+def test_version_root_default_when_unset(tmp_path, monkeypatch):
+    monkeypatch.setenv("MIRAGE_HOME", str(tmp_path))
+    monkeypatch.delenv("MIRAGE_VERSION_ROOT", raising=False)
+    assert version_root_path() == tmp_path / "repos"
+
+
+def test_snapshot_root_env_beats_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("MIRAGE_HOME", str(tmp_path))
+    monkeypatch.setenv("MIRAGE_SNAPSHOT_ROOT", "/env/snaps")
+    _write_config(tmp_path, 'snapshot_root = "/data/snaps"')
+    assert snapshot_root_path() == Path("/env/snaps")
+
+
+def test_snapshot_root_explicit_beats_env(monkeypatch):
+    monkeypatch.setenv("MIRAGE_SNAPSHOT_ROOT", "/env/snaps")
+    assert snapshot_root_path("/explicit/snaps") == Path("/explicit/snaps")
