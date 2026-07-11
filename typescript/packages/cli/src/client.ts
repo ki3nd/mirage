@@ -128,12 +128,13 @@ export class DaemonClient {
   }
 
   private spawnDaemon(): void {
-    validateDaemonTable(readDaemonTable(mirageHome()))
+    const table = readDaemonTable(mirageHome())
+    validateDaemonTable(table)
     const env: Record<string, string> = {}
     for (const [k, v] of Object.entries(process.env)) {
       if (typeof v === 'string') env[k] = v
     }
-    env[ENV_DAEMON_PORT] = String(this.portFromUrl())
+    env[ENV_DAEMON_PORT] = String(this.resolvePort(table))
     env[ENV_IDLE_GRACE_SECONDS] = String(this.settings.idleGraceSeconds)
     if (this.settings.authToken === '') {
       this.settings.authToken = ensureTokenFile(defaultTokenFile())
@@ -158,6 +159,14 @@ export class DaemonClient {
       console.error('failed to spawn daemon:', err)
     })
     child.unref()
+  }
+
+  private resolvePort(table: Record<string, string>): number {
+    const envPort = process.env[ENV_DAEMON_PORT]
+    if (envPort !== undefined && envPort !== '') return Number(envPort)
+    const configPort = table.port
+    if (configPort !== undefined && configPort !== '') return Number(configPort)
+    return this.portFromUrl()
   }
 
   private portFromUrl(): number {

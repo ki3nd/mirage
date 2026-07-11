@@ -20,11 +20,12 @@ ALLOWED_KEYS = frozenset({
     "socket",
     "auth_token",
     "idle_grace_seconds",
+    "port",
     "pid_file",
     "version_root",
     "snapshot_root",
 })
-NUMERIC_KEYS = frozenset({"idle_grace_seconds"})
+NUMERIC_KEYS = frozenset({"idle_grace_seconds", "port"})
 
 
 class DaemonConfigError(Exception):

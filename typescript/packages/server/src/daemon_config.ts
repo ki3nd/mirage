@@ -20,11 +20,12 @@ export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'socket',
   'auth_token',
   'idle_grace_seconds',
+  'port',
   'pid_file',
   'version_root',
   'snapshot_root',
 ])
-export const NUMERIC_KEYS: ReadonlySet<string> = new Set(['idle_grace_seconds'])
+export const NUMERIC_KEYS: ReadonlySet<string> = new Set(['idle_grace_seconds', 'port'])
 
 export class DaemonConfigError extends Error {
   constructor(message: string) {

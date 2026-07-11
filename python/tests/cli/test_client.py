@@ -46,3 +46,50 @@ def test_spawn_daemon_rejects_bad_config(tmp_path, monkeypatch):
         with pytest.raises(DaemonConfigError, match="typo_key"):
             client._spawn_daemon()
     assert not spawned
+
+
+class _FakePopen:
+
+    def __init__(self, sink, cmd, **kwargs):
+        sink.append(cmd)
+
+
+def test_spawn_port_config_beats_url(tmp_path, monkeypatch):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    monkeypatch.delenv("MIRAGE_AUTH_MODE", raising=False)
+    monkeypatch.delenv("MIRAGE_DAEMON_PORT", raising=False)
+    (tmp_path / "config.toml").write_text("[daemon]\nport = 9100\n")
+    cmds = []
+    monkeypatch.setattr(
+        "mirage.cli.client.subprocess.Popen",
+        lambda cmd, **kwargs: _FakePopen(cmds, cmd, **kwargs))
+    with DaemonClient(DaemonSettings()) as client:
+        client._spawn_daemon()
+    assert "9100" in cmds[0]
+
+
+def test_spawn_port_env_beats_config(tmp_path, monkeypatch):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    monkeypatch.delenv("MIRAGE_AUTH_MODE", raising=False)
+    monkeypatch.setenv("MIRAGE_DAEMON_PORT", "9200")
+    (tmp_path / "config.toml").write_text("[daemon]\nport = 9100\n")
+    cmds = []
+    monkeypatch.setattr(
+        "mirage.cli.client.subprocess.Popen",
+        lambda cmd, **kwargs: _FakePopen(cmds, cmd, **kwargs))
+    with DaemonClient(DaemonSettings()) as client:
+        client._spawn_daemon()
+    assert "9200" in cmds[0]
+
+
+def test_spawn_port_falls_back_to_url(tmp_path, monkeypatch):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    monkeypatch.delenv("MIRAGE_AUTH_MODE", raising=False)
+    monkeypatch.delenv("MIRAGE_DAEMON_PORT", raising=False)
+    cmds = []
+    monkeypatch.setattr(
+        "mirage.cli.client.subprocess.Popen",
+        lambda cmd, **kwargs: _FakePopen(cmds, cmd, **kwargs))
+    with DaemonClient(DaemonSettings(url="http://127.0.0.1:9331")) as client:
+        client._spawn_daemon()
+    assert "9331" in cmds[0]

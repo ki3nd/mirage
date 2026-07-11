@@ -344,3 +344,18 @@ describe('resolvedConfig', () => {
     }
   })
 })
+
+describe('resolvedConfig port', () => {
+  it('defaults to 8765 and honors MIRAGE_DAEMON_PORT', () => {
+    const home = mkdtempSync(join(tmpdir(), 'mirage-cli-resolved-'))
+    try {
+      expect(resolvedConfig({ MIRAGE_HOME: home }).port).toEqual(['8765', 'default'])
+      expect(resolvedConfig({ MIRAGE_HOME: home, MIRAGE_DAEMON_PORT: '9100' }).port).toEqual([
+        '9100',
+        'env MIRAGE_DAEMON_PORT',
+      ])
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})

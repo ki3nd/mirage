@@ -192,3 +192,12 @@ def test_resolved_config_defaults_when_nothing_set(monkeypatch, tmp_path):
     assert resolved["url"] == (DEFAULT_DAEMON_URL, "default")
     assert resolved["pid_file"] == (str(tmp_path / "daemon.pid"), "default")
     assert resolved["idle_grace_seconds"] == ("30", "default")
+
+
+def test_resolved_config_includes_port(monkeypatch, tmp_path):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    monkeypatch.delenv("MIRAGE_DAEMON_PORT", raising=False)
+    resolved = resolved_config()
+    assert resolved["port"] == ("8765", "default")
+    monkeypatch.setenv("MIRAGE_DAEMON_PORT", "9100")
+    assert resolved_config()["port"] == ("9100", "env MIRAGE_DAEMON_PORT")
