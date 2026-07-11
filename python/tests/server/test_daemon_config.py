@@ -12,7 +12,11 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-from mirage.server.daemon_config import read_daemon_table
+import pytest
+
+from mirage.server.daemon_config import (ALLOWED_KEYS, DaemonConfigError,
+                                         read_daemon_table,
+                                         validate_daemon_table)
 
 
 def test_read_daemon_table_missing_file(tmp_path):
@@ -30,3 +34,34 @@ def test_read_daemon_table_reads_keys(tmp_path):
     table = read_daemon_table(tmp_path)
     assert table["url"] == "http://h:1"
     assert table["pid_file"] == "/tmp/p.pid"
+
+
+def test_read_daemon_table_malformed_toml(tmp_path):
+    (tmp_path / "config.toml").write_text("[daemon\nnot toml")
+    with pytest.raises(DaemonConfigError, match="config.toml"):
+        read_daemon_table(tmp_path)
+
+
+def test_allowed_keys_contents():
+    assert "pid_file" in ALLOWED_KEYS
+    assert "MIRAGE_HOME" not in ALLOWED_KEYS
+
+
+def test_validate_accepts_known_keys():
+    validate_daemon_table({"url": "http://h:1", "idle_grace_seconds": 45})
+
+
+def test_validate_rejects_unknown_keys():
+    with pytest.raises(DaemonConfigError, match="typo_key"):
+        validate_daemon_table({"typo_key": "x", "url": "http://h:1"})
+
+
+def test_validate_rejects_wrong_type():
+    with pytest.raises(DaemonConfigError, match="pid_file"):
+        validate_daemon_table({"pid_file": 123})
+
+
+def test_validate_accepts_numeric_grace_and_rejects_string():
+    validate_daemon_table({"idle_grace_seconds": 12.5})
+    with pytest.raises(DaemonConfigError, match="idle_grace_seconds"):
+        validate_daemon_table({"idle_grace_seconds": "soon"})

@@ -15,6 +15,45 @@
 import tomllib
 from pathlib import Path
 
+ALLOWED_KEYS = frozenset({
+    "url",
+    "socket",
+    "auth_token",
+    "idle_grace_seconds",
+    "pid_file",
+    "version_root",
+    "snapshot_root",
+})
+NUMERIC_KEYS = frozenset({"idle_grace_seconds"})
+
+
+class DaemonConfigError(Exception):
+    """Raised when config.toml's ``[daemon]`` table is unusable."""
+
+
+def validate_daemon_table(table: dict) -> None:
+    """Reject unknown keys or wrong-typed values in a ``[daemon]`` table.
+
+    Args:
+        table (dict): parsed ``[daemon]`` table.
+
+    Raises:
+        DaemonConfigError: naming every offending key.
+    """
+    unknown = sorted(set(table) - ALLOWED_KEYS)
+    if unknown:
+        raise DaemonConfigError(
+            "config.toml: the following [daemon] keys don't match any "
+            f"configuration option: {', '.join(unknown)}")
+    bad_types = sorted(
+        k for k, v in table.items()
+        if (k in NUMERIC_KEYS and not isinstance(v, (int, float)))
+        or (k not in NUMERIC_KEYS and not isinstance(v, str)))
+    if bad_types:
+        raise DaemonConfigError(
+            "config.toml: the following [daemon] keys have the wrong "
+            f"type: {', '.join(bad_types)}")
+
 
 def read_daemon_table(home: Path) -> dict:
     """Read the ``[daemon]`` table from ``home/config.toml``.
@@ -26,11 +65,17 @@ def read_daemon_table(home: Path) -> dict:
     Returns:
         dict: the ``[daemon]`` table, or ``{}`` if the file or table is
             absent.
+
+    Raises:
+        DaemonConfigError: the file exists but is not valid TOML.
     """
     path = home / "config.toml"
     if not path.exists():
         return {}
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
+    try:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise DaemonConfigError(f"malformed {path}: {e}") from e
     table = data.get("daemon", {})
     return table if isinstance(table, dict) else {}
