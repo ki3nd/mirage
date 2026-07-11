@@ -12,10 +12,11 @@
 // limitations under the License.
 // ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-import { dirname } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
 import {
   defaultTokenFile,
   mirageHome,
+  parseDaemonTable,
   readDaemonTable,
   readTokenFile,
 } from '@struktoai/mirage-server'
@@ -40,7 +41,9 @@ export function loadDaemonSettings(options: LoadOptions = {}): DaemonSettings {
   const env = options.env ?? (process.env as Record<string, string | undefined>)
   const table =
     options.configPath !== undefined
-      ? readDaemonTable(dirname(options.configPath))
+      ? existsSync(options.configPath)
+        ? parseDaemonTable(readFileSync(options.configPath, 'utf-8'))
+        : {}
       : readDaemonTable(mirageHome(env))
   const settings: DaemonSettings = {
     url: table.url ?? DEFAULT_DAEMON_URL,

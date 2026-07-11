@@ -16,7 +16,19 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { readDaemonTable } from './daemon_config.ts'
+import { parseDaemonTable, readDaemonTable } from './daemon_config.ts'
+
+describe('parseDaemonTable', () => {
+  it('parses a [daemon] text block', () => {
+    expect(parseDaemonTable('[daemon]\nurl = "http://127.0.0.1:9999"\n')).toEqual({
+      url: 'http://127.0.0.1:9999',
+    })
+  })
+
+  it('returns {} for text with no [daemon] section', () => {
+    expect(parseDaemonTable('[other]\nfoo = "bar"\n')).toEqual({})
+  })
+})
 
 describe('readDaemonTable', () => {
   it('returns {} when the file is missing', () => {

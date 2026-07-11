@@ -20,10 +20,7 @@ function parseValue(raw: string): string {
   return raw
 }
 
-export function readDaemonTable(home: string): Record<string, string> {
-  const path = join(home, 'config.toml')
-  if (!existsSync(path)) return {}
-  const text = readFileSync(path, 'utf-8')
+export function parseDaemonTable(text: string): Record<string, string> {
   const out: Record<string, string> = {}
   let inDaemon = false
   for (const line of text.split('\n')) {
@@ -43,4 +40,10 @@ export function readDaemonTable(home: string): Record<string, string> {
     out[trimmed.slice(0, eq).trim()] = parseValue(trimmed.slice(eq + 1).trim())
   }
   return out
+}
+
+export function readDaemonTable(home: string): Record<string, string> {
+  const path = join(home, 'config.toml')
+  if (!existsSync(path)) return {}
+  return parseDaemonTable(readFileSync(path, 'utf-8'))
 }

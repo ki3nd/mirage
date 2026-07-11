@@ -65,6 +65,18 @@ describe('loadDaemonSettings', () => {
     }
   })
 
+  it('reads the exact configPath even when the basename is not config.toml', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mirage-cli-settings-'))
+    try {
+      const configPath = join(dir, 'custom.toml')
+      writeFileSync(configPath, '[daemon]\nurl = "http://127.0.0.1:8888"\n')
+      const s = loadDaemonSettings({ env: {}, configPath, tokenFile: ABSENT_FILE })
+      expect(s.url).toBe('http://127.0.0.1:8888')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('reads config.toml and token file under MIRAGE_HOME', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mirage-cli-settings-'))
     try {
