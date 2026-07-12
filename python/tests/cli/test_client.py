@@ -93,3 +93,16 @@ def test_spawn_port_falls_back_to_url(tmp_path, monkeypatch):
     with DaemonClient(DaemonSettings(url="http://127.0.0.1:9331")) as client:
         client._spawn_daemon()
     assert "9331" in cmds[0]
+
+
+def test_spawn_respects_config_auth_mode(tmp_path, monkeypatch):
+    monkeypatch.setenv(ENV_HOME, str(tmp_path))
+    monkeypatch.delenv("MIRAGE_AUTH_MODE", raising=False)
+    monkeypatch.delenv("MIRAGE_DAEMON_PORT", raising=False)
+    (tmp_path / "config.toml").write_text('[daemon]\nauth_mode = "token"\n')
+    spawned = []
+    monkeypatch.setattr("mirage.cli.client.subprocess.Popen",
+                        lambda *args, **kwargs: spawned.append(kwargs))
+    with DaemonClient(DaemonSettings()) as client:
+        client._spawn_daemon()
+    assert "MIRAGE_AUTH_MODE" not in spawned[0]["env"]

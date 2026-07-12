@@ -111,7 +111,7 @@ class DaemonClient:
             self.settings.auth_token = auth_storage.ensure_token_file(
                 auth_storage.default_token_file())
         env[ENV_AUTH_TOKEN] = self.settings.auth_token
-        if ENV_AUTH_MODE not in env:
+        if ENV_AUTH_MODE not in env and not table.get("auth_mode"):
             env[ENV_AUTH_MODE] = AuthMode.LOCAL.value
         cmd = [
             sys.executable,

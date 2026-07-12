@@ -19,14 +19,21 @@ ALLOWED_KEYS = frozenset({
     "url",
     "socket",
     "auth_token",
+    "auth_mode",
     "allowed_hosts",
+    "jwt_alg",
+    "jwt_issuer",
+    "jwt_audience",
+    "jwt_pubkey_file",
+    "jwt_clock_skew",
+    "jwt_authorized_parties",
     "idle_grace_seconds",
     "port",
     "pid_file",
     "version_root",
     "snapshot_root",
 })
-NUMERIC_KEYS = frozenset({"idle_grace_seconds", "port"})
+NUMERIC_KEYS = frozenset({"idle_grace_seconds", "jwt_clock_skew", "port"})
 
 
 class DaemonConfigError(Exception):

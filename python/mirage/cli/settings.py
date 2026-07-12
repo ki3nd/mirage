@@ -19,6 +19,11 @@ from pathlib import Path
 
 from mirage.cli.env import ENV_DAEMON_URL, ENV_TOKEN
 from mirage.server.auth import storage as auth_storage
+from mirage.server.auth.config import (ENV_AUTH_MODE, ENV_JWT_ALG,
+                                       ENV_JWT_AUDIENCE,
+                                       ENV_JWT_AUTHORIZED_PARTIES,
+                                       ENV_JWT_CLOCK_SKEW, ENV_JWT_ISSUER,
+                                       ENV_JWT_PUBKEY_FILE)
 from mirage.server.daemon_config import (ALLOWED_KEYS, NUMERIC_KEYS,
                                          DaemonConfigError, read_daemon_table)
 from mirage.server.env import (ENV_ALLOWED_HOSTS, ENV_DAEMON_PORT,
@@ -32,6 +37,13 @@ DEFAULT_DAEMON_URL = "http://127.0.0.1:8765"
 _ENV_FOR_KEY = {
     "url": ENV_DAEMON_URL,
     "allowed_hosts": ENV_ALLOWED_HOSTS,
+    "auth_mode": ENV_AUTH_MODE,
+    "jwt_alg": ENV_JWT_ALG,
+    "jwt_issuer": ENV_JWT_ISSUER,
+    "jwt_audience": ENV_JWT_AUDIENCE,
+    "jwt_pubkey_file": ENV_JWT_PUBKEY_FILE,
+    "jwt_clock_skew": ENV_JWT_CLOCK_SKEW,
+    "jwt_authorized_parties": ENV_JWT_AUTHORIZED_PARTIES,
     "auth_token": ENV_TOKEN,
     "idle_grace_seconds": ENV_IDLE_GRACE_SECONDS,
     "port": ENV_DAEMON_PORT,
@@ -103,6 +115,13 @@ def _default_for_key(key: str, home: Path) -> str:
     defaults = {
         "url": DEFAULT_DAEMON_URL,
         "allowed_hosts": ",".join(DEFAULT_ALLOWED_HOSTS),
+        "auth_mode": "local",
+        "jwt_alg": "",
+        "jwt_issuer": "",
+        "jwt_audience": "",
+        "jwt_pubkey_file": "",
+        "jwt_clock_skew": "5",
+        "jwt_authorized_parties": "",
         "socket": "",
         "auth_token": "",
         "idle_grace_seconds": "30",

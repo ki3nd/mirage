@@ -140,7 +140,9 @@ export class DaemonClient {
       this.settings.authToken = ensureTokenFile(defaultTokenFile())
     }
     env[ENV_AUTH_TOKEN] = this.settings.authToken
-    env[ENV_AUTH_MODE] ??= AuthMode.Local
+    if ((env[ENV_AUTH_MODE] ?? '') === '' && (table.auth_mode ?? '') === '') {
+      env[ENV_AUTH_MODE] = AuthMode.Local
+    }
     const logDir = mirageHome()
     mkdirSync(logDir, { recursive: true })
     const out = openSync(join(logDir, 'daemon.log'), 'a')
