@@ -482,8 +482,17 @@ CASES: list[tuple[str, str]] = [
      "grep -f /data/patterns.txt -f /data/patterns2.txt /data/a.txt"),
     ("grep_cluster_ne", "grep -ne world /data/a.txt"),
     ("du_max_depth_eq", "du --max-depth=1 /data/sub"),
-    ("grep_unknown_flag_ignored", "grep --color=auto world /data/a.txt"),
-    ("grep_unknown_short_flag", "grep -Y world /data/a.txt"),
+    ("grep_unknown_long_flag",
+     "grep --bogus world /data/a.txt 2>&1; echo code=$?"),
+    ("grep_unknown_short_flag",
+     "grep -Y world /data/a.txt 2>&1; echo code=$?"),
+    ("cat_unknown_long_flag", "cat --bogus /data/a.txt 2>&1; echo code=$?"),
+    ("grep_missing_flag_value", "grep -m 2>&1; echo code=$?"),
+    ("du_missing_flag_value", "du --max-depth 2>&1; echo code=$?"),
+    ("grep_color_auto", "grep --color=auto world /data/a.txt"),
+    ("grep_color_bare", "grep --color world /data/a.txt"),
+    ("grep_line_buffered", "grep --line-buffered world /data/a.txt"),
+    ("ls_color", "ls --color /data/sub"),
     ("head_numeric_shorthand", "head -2 /data/a.txt"),
     ("tail_numeric_shorthand", "tail -2 /data/a.txt"),
     ("grep_cluster_attached", "grep -neworld /data/a.txt"),
@@ -1008,6 +1017,51 @@ async def run_not_found(ws, mount: str) -> None:
             print(err)
 
 
+# Multi-file read commands process every operand, GNU-style: each case
+# prints exit, stdout, and stderr, so a command that drops a good operand's
+# output, stops at the first missing operand, or silently swallows the
+# error diverges from truth. Seeds live under /data/pr and are removed at
+# the end so later sections see an untouched /data. stat is excluded (its
+# output carries mtimes); it is pinned in cross_commands instead.
+PARTIAL_READ_CASES: list[tuple[str, str]] = [
+    ("pr_seed", "mkdir -p /data/pr && printf '1\\n2\\n' > /data/pr/one.txt"
+     " && printf '3\\n4\\n' > /data/pr/two.txt"
+     " && printf 'hello\\n' > /data/pr/h1.txt"
+     " && printf 'worlds\\n' > /data/pr/h2.txt"
+     " && printf 'z\\n' > /data/pr/z1.txt"
+     " && printf 'y\\n' > /data/pr/z2.txt"
+     " && gzip /data/pr/z1.txt /data/pr/z2.txt"),
+    # every operand is processed, not just the first
+    ("pr_cut_multi", "cut -c1 /data/pr/one.txt /data/pr/two.txt"),
+    ("pr_tac_multi", "tac /data/pr/one.txt /data/pr/two.txt"),
+    ("pr_nl_multi", "nl /data/pr/one.txt /data/pr/two.txt"),
+    ("pr_strings_multi", "strings /data/pr/h1.txt /data/pr/h2.txt"),
+    ("pr_zcat_multi", "zcat /data/pr/z1.txt.gz /data/pr/z2.txt.gz"),
+    # good + missing keeps partial output, one stderr line, exit 1
+    ("pr_cat", "cat /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_head", "head -n 1 /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_tail", "tail -n 1 /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_wc", "wc -l /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_nl", "nl /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_md5", "md5 /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_sha256sum", "sha256sum /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_strings", "strings /data/pr/h1.txt /data/pr/missing.txt"),
+    ("pr_tac", "tac /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_rev", "rev /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_cut", "cut -c1 /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_expand", "expand /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_unexpand", "unexpand /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_fold", "fold /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_fmt", "fmt /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_zcat", "zcat /data/pr/z1.txt.gz /data/pr/missing.gz"),
+    ("pr_sed", "sed s/1/X/ /data/pr/one.txt /data/pr/missing.txt"),
+    # sort aborts (it needs every input before emitting anything)
+    ("pr_sort", "sort /data/pr/one.txt /data/pr/missing.txt"),
+    ("pr_missing_first", "cat /data/pr/missing.txt /data/pr/one.txt"),
+    ("pr_all_missing_wc", "wc -l /data/pr/m1.txt /data/pr/m2.txt"),
+    ("pr_cleanup", "rm -r /data/pr"),
+]
+
 # Invalid numeric/size/mtime arguments to find must exit 1 with a GNU-style
 # message, identically across every backend (parsed before any backend I/O).
 FIND_ARG_ERROR_CASES: list[tuple[str, str]] = [
@@ -1042,6 +1096,8 @@ CROSS_MOUNT_CASES: list[tuple[str, str]] = [
     ("xm_mv_over", "mv /data/xm_back.txt /data2/xm_moved.txt"
      " && cat /data2/xm_moved.txt && ls /data2"),
     ("xm_grep_multi", "grep -c s /data/a.txt /data2/xm.txt"),
+    ("xm_unknown_flag_errors",
+     "grep --bogus s /data/a.txt /data2/xm.txt 2>&1; echo code=$?"),
     ("xm_wc_multi", "wc -l /data/a.txt /data2/xm.txt"),
     # du/md5/file fan out per mount and aggregate like the other readers
     ("xm_du_multi", "du /data/b.txt /data2/xm.txt"),
@@ -1381,6 +1437,17 @@ async def run_cases(ws) -> None:
         err = (await result.stderr_str()).strip()
         print(f"=== {name} ===")
         print(f"exit={result.exit_code}")
+        if err:
+            print(err)
+
+    for name, cmd in PARTIAL_READ_CASES:
+        result = await ws.execute(cmd)
+        out = await result.stdout_str()
+        err = (await result.stderr_str()).strip()
+        print(f"=== {name} ===")
+        print(f"exit={result.exit_code}")
+        if out:
+            _emit_body(out)
         if err:
             print(err)
 
