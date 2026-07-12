@@ -395,7 +395,30 @@ Most users never need to think about the daemon. If you do:
   version_root       = "/data/repos"
   ```
 - Per key the precedence is: env var > `config.toml` > default.
-  Allowed keys: `url`, `socket`, `auth_token`, `auth_mode`,
+  Because env vars silently beat the file, `mirage config list`
+  (which shows only the file) can look right while the daemon uses
+  something else. `--resolved` shows the value each key will
+  actually get and which source won:
+
+  ```bash
+  $ mirage config set version_root /data/repos
+  $ export MIRAGE_VERSION_ROOT=/tmp/other        # e.g. left over in your shell profile
+
+  $ mirage config list          # the file looks correct...
+  version_root = /data/repos
+
+  $ mirage config list --resolved   # ...but the env var wins
+  version_root = /tmp/other  (env MIRAGE_VERSION_ROOT)
+  port         = 8765        (default)
+  url          = http://127.0.0.1:8765  (default)
+  auth_token   = ***         (env MIRAGE_TOKEN)
+  ```
+
+  Use it whenever a setting seems ignored: the origin column names
+  the exact env var overriding you. Secrets are masked, and piped
+  output is JSON (`{"version_root": {"value": ..., "origin": ...}}`)
+  so it works with `jq`.
+- Allowed keys: `url`, `socket`, `auth_token`, `auth_mode`,
   `allowed_hosts`, `idle_grace_seconds`, `port`, `pid_file`,
   `version_root`, `snapshot_root`, and the `jwt_*` family
   (`jwt_alg`, `jwt_issuer`, `jwt_audience`, `jwt_pubkey_file`,
