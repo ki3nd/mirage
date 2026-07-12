@@ -29,10 +29,13 @@ def _mask(key: str, value: str) -> str:
     return value
 
 
+_RESOLVED_OPTION = typer.Option(False,
+                                "--resolved",
+                                help="show effective values and their origins")
+
+
 @app.command("list")
-def list_cmd(resolved: bool = typer.Option(
-        False, "--resolved",
-        help="show effective values and their origins")) -> None:
+def list_cmd(resolved: bool = _RESOLVED_OPTION) -> None:
     """Print every key in the config.toml [daemon] table.
 
     With --resolved, print the effective value of every key after
@@ -48,12 +51,12 @@ def list_cmd(resolved: bool = typer.Option(
             k: {
                 "value": _mask(k, v),
                 "origin": o
-            } for k, (v, o) in table.items()
+            }
+            for k, (v, o) in table.items()
         }
-        emit(
-            payload,
-            human=lambda d: "\n".join(f"{k} = {e['value']}  ({e['origin']})"
-                                      for k, e in d.items()))
+        emit(payload,
+             human=lambda d: "\n".join(f"{k} = {e['value']}  ({e['origin']})"
+                                       for k, e in d.items()))
         return
     try:
         table = list_config()

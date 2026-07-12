@@ -56,8 +56,8 @@ def validate_daemon_table(table: dict) -> None:
             f"configuration option: {', '.join(unknown)}")
     bad_types = sorted(
         k for k, v in table.items()
-        if (k in NUMERIC_KEYS and not isinstance(v, (int, float)))
-        or (k not in NUMERIC_KEYS and not isinstance(v, str)))
+        if (k in NUMERIC_KEYS and not isinstance(v, (int, float))) or (
+            k not in NUMERIC_KEYS and not isinstance(v, str)))
     if bad_types:
         raise DaemonConfigError(
             "config.toml: the following [daemon] keys have the wrong "

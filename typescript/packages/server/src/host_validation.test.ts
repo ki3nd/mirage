@@ -231,7 +231,10 @@ describe('buildApp host header enforcement', () => {
 describe('resolveAllowedHosts config layer', () => {
   it('config beats default', () => {
     const home = mkdtempSync(join(tmpdir(), 'mir-hosts-'))
-    writeFileSync(join(home, 'config.toml'), '[daemon]\nallowed_hosts = "example.com,api.example.com"\n')
+    writeFileSync(
+      join(home, 'config.toml'),
+      '[daemon]\nallowed_hosts = "example.com,api.example.com"\n',
+    )
     expect(resolveAllowedHosts(undefined, { MIRAGE_HOME: home })).toEqual([
       'example.com',
       'api.example.com',
@@ -242,7 +245,10 @@ describe('resolveAllowedHosts config layer', () => {
     const home = mkdtempSync(join(tmpdir(), 'mir-hosts-'))
     writeFileSync(join(home, 'config.toml'), '[daemon]\nallowed_hosts = "file.example.com"\n')
     expect(
-      resolveAllowedHosts(undefined, { MIRAGE_HOME: home, MIRAGE_ALLOWED_HOSTS: 'env.example.com' }),
+      resolveAllowedHosts(undefined, {
+        MIRAGE_HOME: home,
+        MIRAGE_ALLOWED_HOSTS: 'env.example.com',
+      }),
     ).toEqual(['env.example.com'])
   })
 })

@@ -16,7 +16,13 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ALLOWED_KEYS, DaemonConfigError, parseDaemonTable, readDaemonTable, validateDaemonTable } from './daemon_config.ts'
+import {
+  ALLOWED_KEYS,
+  DaemonConfigError,
+  parseDaemonTable,
+  readDaemonTable,
+  validateDaemonTable,
+} from './daemon_config.ts'
 
 describe('parseDaemonTable', () => {
   it('parses a [daemon] text block', () => {
@@ -95,5 +101,13 @@ describe('parseDaemonTable malformed lines', () => {
     expect(parseDaemonTable('junk line\n[daemon]\nurl = "http://h:1"\n')).toEqual({
       url: 'http://h:1',
     })
+  })
+})
+
+describe('parseDaemonTable unclosed section header', () => {
+  it('throws on a [ line without a closing bracket', () => {
+    expect(() => {
+      parseDaemonTable('[daemon\nnot toml\n')
+    }).toThrow(/malformed/)
   })
 })

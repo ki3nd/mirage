@@ -33,7 +33,11 @@ export const ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'version_root',
   'snapshot_root',
 ])
-export const NUMERIC_KEYS: ReadonlySet<string> = new Set(['idle_grace_seconds', 'jwt_clock_skew', 'port'])
+export const NUMERIC_KEYS: ReadonlySet<string> = new Set([
+  'idle_grace_seconds',
+  'jwt_clock_skew',
+  'port',
+])
 
 export class DaemonConfigError extends Error {
   constructor(message: string) {
@@ -58,8 +62,7 @@ export function validateDaemonTable(table: Record<string, string>): void {
     .sort()
   if (badTypes.length > 0) {
     throw new DaemonConfigError(
-      'config.toml: the following [daemon] keys have the wrong ' +
-        `type: ${badTypes.join(', ')}`,
+      'config.toml: the following [daemon] keys have the wrong ' + `type: ${badTypes.join(', ')}`,
     )
   }
 }
@@ -82,6 +85,9 @@ export function parseDaemonTable(text: string): Record<string, string> {
       continue
     }
     if (trimmed.startsWith('[')) {
+      if (!trimmed.endsWith(']')) {
+        throw new DaemonConfigError(`malformed config.toml section line: ${trimmed}`)
+      }
       inDaemon = false
       continue
     }
