@@ -18,7 +18,7 @@ import type { IOResult } from '../../io/types.ts'
 import type { Session } from '../session/session.ts'
 import { expandTilde } from '../../utils/path.ts'
 import { homeDir } from '../session/shell_dirs.ts'
-import { shlexSplit } from './classify.ts'
+import { shlexSplit } from '../../utils/shlex.ts'
 import { ARITH_DELIMITERS, ARITH_OPERATORS } from './constants.ts'
 import { expandBraces, lookupVar, type TSNodeLike } from './variable.ts'
 
@@ -85,7 +85,14 @@ export async function expandNode(
 
   if (ntype === NT.WORD) return expandTilde(unescapeUnquoted(tsNode.text), homeDir(session))
   if (ntype === NT.NUMBER) return tsNode.text
-  if (ntype === NT.COMMAND_NAME) return tsNode.text
+  if (ntype === NT.COMMAND_NAME) {
+    // The name is a word like any other: $CMD, "quoted", $(sub) all
+    // expand. A bare word has one named child (or none) and falls
+    // through to its own expansion rule.
+    const child = tsNode.namedChildren[0]
+    if (child !== undefined) return expandNode(child, session, executeFn, callStack)
+    return tsNode.text
+  }
 
   if (ntype === NT.SIMPLE_EXPANSION) {
     const raw = tsNode.text

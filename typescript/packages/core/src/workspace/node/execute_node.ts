@@ -64,7 +64,7 @@ import type { Namespace } from '../mount/namespace.ts'
 import type { MountRegistry } from '../mount/registry.ts'
 import type { Session } from '../session/session.ts'
 import { ExecutionNode } from '../types.ts'
-import { resolveGlobs } from './resolve_globs.ts'
+import { resolveGlobs } from '../expand/globs.ts'
 import { expandTestExpr } from './test_expr.ts'
 import { executeProgram } from './program.ts'
 import { executeCommand } from './command_dispatch.ts'
@@ -146,6 +146,36 @@ export async function executeNode(
 
   if (kind === NodeKind.REDIRECT) {
     const [command, redirects] = getRedirects(node)
+    if (command.type === NT.LIST) {
+      // tree-sitter hoists a trailing redirect over the whole &&/||
+      // list; bash binds it to the last command:
+      //   redirected(list(L, op, R), r) == list(L, op, redirected(R, r))
+      // Re-associate and defer target expansion until R runs, so
+      // `cd /x && echo hi > f` writes under /x. Compound and subshell
+      // bodies keep the whole-body redirect (bash group semantics).
+      const [left, op, right] = getListParts(command)
+      const wrapped: typeof recurse = async (n, sess, sin, cstack) => {
+        if (n !== right) return recurse(n, sess, sin, cstack)
+        const [expanded, pipe] = await expandRedirects(redirects, sess, executeFn, registry, cstack)
+        let [rStdout, rIo, rExec] = await handleRedirect(
+          recurse,
+          dispatch,
+          right,
+          expanded,
+          sess,
+          sin,
+          cstack,
+        )
+        if (pipe !== null && rStdout !== null) {
+          const [s2, io2, e2] = await recurse(pipe, sess, rStdout, cstack)
+          rStdout = s2
+          rIo = await rIo.merge(io2)
+          rExec = e2
+        }
+        return [rStdout, rIo, rExec]
+      }
+      return handleConnection(wrapped, left, op, right, session, stdin, callStack)
+    }
     const [expandedRedirects, pipeNode] = await expandRedirects(
       redirects,
       session,
@@ -216,6 +246,8 @@ export async function executeNode(
       session.cwd,
       callStack,
     )
+    // The loop word list is consumed by the shell (WordPolicy.SHELL):
+    // globs resolve to matches before iteration starts.
     const resolved = await resolveGlobs(classified, registry)
     if (kind === NodeKind.SELECT) {
       return handleSelect(recurse, variable, resolved, body, session, stdin, callStack)

@@ -34,6 +34,8 @@ export const BUILTIN_SPECS: Readonly<Record<string, CommandSpec>> = Object.freez
       new Option({ short: '-R' }),
       new Option({ short: '-d' }),
       new Option({ short: '-F' }),
+      // Accepted no-op like grep --color (#471).
+      new Option({ long: '--color', valueKind: OperandKind.TEXT, valueOptional: true }),
     ],
     rest: new Operand({ kind: OperandKind.PATH }),
   }),
@@ -95,13 +97,24 @@ export const BUILTIN_SPECS: Readonly<Record<string, CommandSpec>> = Object.freez
     rest: new Operand({ kind: OperandKind.PATH }),
   }),
   cat: new CommandSpec({
-    options: [new Option({ short: '-n' })],
+    options: [
+      new Option({ short: '-n' }),
+      new Option({ short: '-E' }),
+      new Option({ short: '-T' }),
+      new Option({ short: '-v' }),
+      new Option({ short: '-e' }),
+      new Option({ short: '-t' }),
+      new Option({ short: '-A' }),
+      new Option({ short: '-s' }),
+    ],
     rest: new Operand({ kind: OperandKind.PATH }),
   }),
   head: new CommandSpec({
     options: [
       new Option({ short: '-n', valueKind: OperandKind.TEXT, numericShorthand: true }),
       new Option({ short: '-c', valueKind: OperandKind.TEXT }),
+      new Option({ short: '-q' }),
+      new Option({ short: '-v' }),
     ],
     rest: new Operand({ kind: OperandKind.PATH }),
   }),
@@ -153,6 +166,7 @@ export const BUILTIN_SPECS: Readonly<Record<string, CommandSpec>> = Object.freez
   nl: new CommandSpec({
     options: [
       new Option({ short: '-b', valueKind: OperandKind.TEXT }),
+      new Option({ short: '-d', valueKind: OperandKind.TEXT }),
       new Option({ short: '-v', valueKind: OperandKind.TEXT }),
       new Option({ short: '-i', valueKind: OperandKind.TEXT }),
       new Option({ short: '-w', valueKind: OperandKind.TEXT }),
@@ -183,6 +197,11 @@ export const BUILTIN_SPECS: Readonly<Record<string, CommandSpec>> = Object.freez
       new Option({ short: '-C', valueKind: OperandKind.TEXT }),
       new Option({ short: '-e', valueKind: OperandKind.TEXT, repeatable: true }),
       new Option({ short: '-f', valueKind: OperandKind.PATH, repeatable: true }),
+      // Accepted no-ops: output is never a tty, so plain output is
+      // exactly what GNU produces with --color=auto (#471).
+      new Option({ long: '--color', valueKind: OperandKind.TEXT, valueOptional: true }),
+      new Option({ long: '--colour', valueKind: OperandKind.TEXT, valueOptional: true }),
+      new Option({ long: '--line-buffered' }),
     ],
     positional: [new Operand({ kind: OperandKind.TEXT, providedBy: ['-e', '-f'] })],
     rest: new Operand({ kind: OperandKind.PATH }),
@@ -197,6 +216,8 @@ export const BUILTIN_SPECS: Readonly<Record<string, CommandSpec>> = Object.freez
       new Option({ short: '-w' }),
       new Option({ short: '-F' }),
       new Option({ short: '-o' }),
+      new Option({ short: '-H' }),
+      new Option({ short: '-I' }),
       new Option({ short: '-e', valueKind: OperandKind.TEXT, repeatable: true }),
       new Option({ short: '-f', valueKind: OperandKind.PATH, repeatable: true }),
       new Option({ short: '-m', valueKind: OperandKind.TEXT }),
@@ -206,6 +227,8 @@ export const BUILTIN_SPECS: Readonly<Record<string, CommandSpec>> = Object.freez
       new Option({ long: '--hidden' }),
       new Option({ long: '--type', valueKind: OperandKind.TEXT }),
       new Option({ long: '--glob', valueKind: OperandKind.TEXT }),
+      // Accepted no-op like grep --color (#471).
+      new Option({ long: '--color', valueKind: OperandKind.TEXT, valueOptional: true }),
     ],
     positional: [new Operand({ kind: OperandKind.TEXT, providedBy: ['-e', '-f'] })],
     rest: new Operand({ kind: OperandKind.PATH }),
@@ -231,6 +254,7 @@ export const BUILTIN_SPECS: Readonly<Record<string, CommandSpec>> = Object.freez
       new Option({ short: '-V' }),
       new Option({ short: '-s' }),
       new Option({ short: '-M' }),
+      new Option({ short: '-b' }),
     ],
     rest: new Operand({ kind: OperandKind.PATH }),
   }),
@@ -403,10 +427,10 @@ export const BUILTIN_SPECS: Readonly<Record<string, CommandSpec>> = Object.freez
   awk: new CommandSpec({
     options: [
       new Option({ short: '-F', valueKind: OperandKind.TEXT }),
-      new Option({ short: '-v', valueKind: OperandKind.TEXT }),
-      new Option({ short: '-f', valueKind: OperandKind.PATH }),
+      new Option({ short: '-v', valueKind: OperandKind.TEXT, repeatable: true }),
+      new Option({ short: '-f', valueKind: OperandKind.PATH, repeatable: true }),
     ],
-    positional: [new Operand({ kind: OperandKind.TEXT })],
+    positional: [new Operand({ kind: OperandKind.TEXT, providedBy: ['-f'] })],
     rest: new Operand({ kind: OperandKind.PATH }),
   }),
   paste: new CommandSpec({

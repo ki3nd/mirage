@@ -116,7 +116,6 @@ export {
   type ParsedArgsInit,
   parseCommand,
   parseToKwargs,
-  resolvePath,
   specOf,
   SPECS,
 } from './commands/spec/index.ts'
@@ -245,7 +244,15 @@ export { fmtGeneric } from './commands/builtin/generic/fmt.ts'
 export { headStream } from './commands/builtin/generic/head.ts'
 export { basenameFn } from './commands/builtin/generic/basename.ts'
 export { dirnameFn } from './commands/builtin/generic/dirname.ts'
-export { gnuBasename, gnuDirname, norm, parent } from './utils/path.ts'
+export { gnuBasename, gnuDirname, norm, parent, posixNormpath, resolvePath } from './utils/path.ts'
+export { shlexSplit } from './utils/shlex.ts'
+export {
+  expandPattern,
+  hasGlob,
+  isWordShaped,
+  resolveGlobWith,
+  spellMatch,
+} from './utils/glob_walk.ts'
 export { detectFileType, FILE_MIME_MAP, formatFileResult } from './commands/builtin/file_helper.ts'
 export {
   type AggregateResult,
@@ -512,13 +519,18 @@ export {
   expandParts,
   type ExecuteFn,
   lookupVar,
-  posixNormpath,
   safeEval,
-  shlexSplit,
   type TSNodeLike,
   unescapePath,
 } from './workspace/expand/index.ts'
-export { resolveGlobs, type ResourceWithGlob } from './workspace/node/resolve_globs.ts'
+export { resolveGlobs, type ResourceWithGlob } from './workspace/expand/globs.ts'
+export {
+  Consumer,
+  NAMESPACE_COMMANDS,
+  SHELL_CONSUMERS,
+  UNSUPPORTED_BUILTINS,
+  route,
+} from './workspace/route/index.ts'
 export { expandTestExpr } from './workspace/node/test_expr.ts'
 export { executeNode, type ExecuteNodeDeps } from './workspace/node/execute_node.ts'
 export { S3Accessor, type S3ResourceLike } from './accessor/s3.ts'
