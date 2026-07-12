@@ -124,11 +124,15 @@ export function resolvedConfig(
   const out: Record<string, [string, string]> = {}
   for (const key of [...ALLOWED_KEYS].sort()) {
     const envName = ENV_FOR_KEY[key]
-    const envValue = envName !== undefined ? env[envName] : undefined
+    if (envName !== undefined) {
+      const envValue = env[envName]
+      if (envValue !== undefined && envValue !== '') {
+        out[key] = [envValue, `env ${envName}`]
+        continue
+      }
+    }
     const fileValue = table[key]
-    if (envValue !== undefined && envValue !== '') {
-      out[key] = [envValue, `env ${envName}`]
-    } else if (fileValue !== undefined && fileValue !== '') {
+    if (fileValue !== undefined && fileValue !== '') {
       out[key] = [fileValue, 'file']
     } else {
       out[key] = [defaultForKey(key, home), 'default']

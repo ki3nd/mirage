@@ -52,7 +52,7 @@ describe('buildApp config validation', () => {
     vi.unstubAllEnvs()
   })
 
-  it('rejects an unknown [daemon] key at startup', async () => {
+  it('rejects an unknown [daemon] key at startup', () => {
     const home = mkdtempSync(join(tmpdir(), 'mir-app-'))
     writeFileSync(join(home, 'config.toml'), '[daemon]\ntypo_key = "x"\n')
     vi.stubEnv('MIRAGE_HOME', home)
