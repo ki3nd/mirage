@@ -29,6 +29,40 @@ def _mask(key: str, value: str) -> str:
     return value
 
 
+def _human_table(table: dict) -> str:
+    return "\n".join(f"{k} = {v}" for k, v in table.items())
+
+
+def _human_resolved(table: dict) -> str:
+    return "\n".join(f"{k} = {e['value']}  ({e['origin']})"
+                     for k, e in table.items())
+
+
+def _list_resolved() -> None:
+    try:
+        resolved = resolved_config()
+    except DaemonConfigError as e:
+        fail(str(e), exit_code=2)
+    payload = {}
+    for key, (value, origin) in resolved.items():
+        payload[key] = {"value": _mask(key, value), "origin": origin}
+    emit(payload, human=_human_resolved)
+
+
+def _list_file() -> None:
+    try:
+        table = list_config()
+    except DaemonConfigError as e:
+        fail(str(e), exit_code=2)
+    unknown = sorted(set(table) - ALLOWED_KEYS)
+    if unknown:
+        typer.echo(
+            "warning: unknown [daemon] keys (daemon will refuse to "
+            f"start): {', '.join(unknown)}",
+            err=True)
+    emit(table, human=_human_table)
+
+
 _RESOLVED_OPTION = typer.Option(False,
                                 "--resolved",
                                 help="show effective values and their origins")
@@ -43,32 +77,9 @@ def list_cmd(resolved: bool = _RESOLVED_OPTION) -> None:
     each value came from. auth_token is masked.
     """
     if resolved:
-        try:
-            table = resolved_config()
-        except DaemonConfigError as e:
-            fail(str(e), exit_code=2)
-        payload = {
-            k: {
-                "value": _mask(k, v),
-                "origin": o
-            }
-            for k, (v, o) in table.items()
-        }
-        emit(payload,
-             human=lambda d: "\n".join(f"{k} = {e['value']}  ({e['origin']})"
-                                       for k, e in d.items()))
-        return
-    try:
-        table = list_config()
-    except DaemonConfigError as e:
-        fail(str(e), exit_code=2)
-    unknown = sorted(set(table) - ALLOWED_KEYS)
-    if unknown:
-        typer.echo(
-            "warning: unknown [daemon] keys (daemon will refuse to "
-            f"start): {', '.join(unknown)}",
-            err=True)
-    emit(table, human=lambda d: "\n".join(f"{k} = {v}" for k, v in d.items()))
+        _list_resolved()
+    else:
+        _list_file()
 
 
 @app.command("get")

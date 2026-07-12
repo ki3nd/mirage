@@ -22,6 +22,58 @@ function mask(key: string, value: string): string {
   return value
 }
 
+interface ResolvedEntry {
+  value: string
+  origin: string
+}
+
+function humanTable(table: Record<string, string>): string {
+  return Object.entries(table)
+    .map(([k, v]) => `${k} = ${v}`)
+    .join('\n')
+}
+
+function humanResolved(table: Record<string, ResolvedEntry>): string {
+  return Object.entries(table)
+    .map(([k, e]) => `${k} = ${e.value}  (${e.origin})`)
+    .join('\n')
+}
+
+function listResolved(): void {
+  let resolved: Record<string, [string, string]>
+  try {
+    resolved = resolvedConfig()
+  } catch (e) {
+    fail((e as Error).message, 2)
+    return
+  }
+  const payload: Record<string, ResolvedEntry> = {}
+  for (const [key, [value, origin]] of Object.entries(resolved)) {
+    payload[key] = { value: mask(key, value), origin }
+  }
+  emit(payload, humanResolved)
+}
+
+function listFile(): void {
+  let table: Record<string, string>
+  try {
+    table = listConfig()
+  } catch (e) {
+    if (!(e instanceof DaemonConfigError)) throw e
+    fail(e.message, 2)
+    return
+  }
+  const unknown = Object.keys(table)
+    .filter((k) => !ALLOWED_KEYS.has(k))
+    .sort()
+  if (unknown.length > 0) {
+    process.stderr.write(
+      'warning: unknown [daemon] keys (daemon will refuse to ' + `start): ${unknown.join(', ')}\n`,
+    )
+  }
+  emit(table, humanTable)
+}
+
 export function registerConfigCommands(program: Command): void {
   const config = program
     .command('config')
@@ -32,46 +84,8 @@ export function registerConfigCommands(program: Command): void {
     .option('--resolved', 'show effective values and their origins')
     .description('Print the config.toml [daemon] table.')
     .action((opts: { resolved?: boolean }) => {
-      if (opts.resolved === true) {
-        let resolved: Record<string, [string, string]>
-        try {
-          resolved = resolvedConfig()
-        } catch (e) {
-          fail((e as Error).message, 2)
-          return
-        }
-        const payload = Object.fromEntries(
-          Object.entries(resolved).map(([k, [v, o]]) => [k, { value: mask(k, v), origin: o }]),
-        )
-        emit(payload, (d: Record<string, { value: string; origin: string }>) =>
-          Object.entries(d)
-            .map(([k, e]) => `${k} = ${e.value}  (${e.origin})`)
-            .join('\n'),
-        )
-        return
-      }
-      let table: Record<string, string>
-      try {
-        table = listConfig()
-      } catch (e) {
-        if (!(e instanceof DaemonConfigError)) throw e
-        fail(e.message, 2)
-        return
-      }
-      const unknown = Object.keys(table)
-        .filter((k) => !ALLOWED_KEYS.has(k))
-        .sort()
-      if (unknown.length > 0) {
-        process.stderr.write(
-          'warning: unknown [daemon] keys (daemon will refuse to ' +
-            `start): ${unknown.join(', ')}\n`,
-        )
-      }
-      emit(table, (d: Record<string, string>) =>
-        Object.entries(d)
-          .map(([k, v]) => `${k} = ${v}`)
-          .join('\n'),
-      )
+      if (opts.resolved === true) listResolved()
+      else listFile()
     })
 
   config
