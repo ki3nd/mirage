@@ -385,7 +385,10 @@ Most users never need to think about the daemon. If you do:
   ```bash
   mirage config set port 9100
   mirage config set version_root /data/repos
-  mirage config list --resolved   # effective values + where each came from
+  mirage config get version_root          # one key, exit 1 if unset
+  mirage config list                      # everything written in the file
+  mirage config unset port                # remove a key
+  mirage config list --resolved           # effective values + where each came from
   ```
   ```toml
   [daemon]
