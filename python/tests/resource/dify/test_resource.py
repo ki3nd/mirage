@@ -1,3 +1,5 @@
+import pytest
+
 from mirage.resource.registry import REGISTRY, build_resource
 from mirage.types import ResourceName
 
@@ -63,3 +65,21 @@ def test_dify_resource_registers_expected_commands_and_ops():
     assert {"cat", "ls", "grep", "find", "head", "tail",
             "wc"}.issubset(commands)
     assert {"read", "readdir", "stat", "grep"}.issubset(ops)
+
+
+@pytest.mark.asyncio
+async def test_dify_resource_close_closes_shared_client():
+    resource = build_resource(
+        "dify",
+        {
+            "api_key": "dataset-secret",
+            "base_url": "https://api.dify.ai/v1",
+            "dataset_id": "dataset-1",
+        },
+    )
+    client = resource.accessor.get_client()
+
+    await resource.close()
+
+    assert client.is_closed is True
+    assert resource.accessor._client is None
