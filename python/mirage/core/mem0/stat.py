@@ -13,16 +13,17 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 import json
+from typing import Any
 
 from mirage.accessor.mem0 import Mem0Accessor
-from mirage.cache.index import IndexCacheStore
+from mirage.cache.index import NULL_INDEX, IndexCacheStore
 from mirage.core.mem0._client import get_memory
-from mirage.core.mem0.scope import detect
+from mirage.core.mem0.scope import ScopeLevel, detect
 from mirage.types import FileStat, FileType, PathSpec
 from mirage.utils.errors import enoent
 
 
-def _file_stat(memory: dict) -> FileStat:
+def _file_stat(memory: dict[str, Any]) -> FileStat:
     body = json.dumps(memory, ensure_ascii=False, indent=2).encode()
     return FileStat(
         name=f"{memory['id']}.json",
@@ -39,25 +40,24 @@ def _file_stat(memory: dict) -> FileStat:
 async def stat(
     accessor: Mem0Accessor,
     path: PathSpec,
-    index: IndexCacheStore = None,
+    index: IndexCacheStore = NULL_INDEX,
 ) -> FileStat:
     """Stat a mem0 path.
 
     Args:
         accessor (Mem0Accessor): mem0 accessor.
         path (PathSpec): the path to stat.
-        index (IndexCacheStore | None): index cache.
+        index (IndexCacheStore): index cache.
     """
-    if isinstance(path, str):
-        path = PathSpec.from_str_path(path)
     scope = detect(path)
-    if scope.level == "root":
+    if scope.level == ScopeLevel.ROOT:
         return FileStat(name="/", type=FileType.DIRECTORY)
-    if scope.level != "memory":
+    if scope.level != ScopeLevel.MEMORY or scope.memory_id is None:
         raise enoent(path)
-    if index is not None:
-        lookup = await index.get(path.virtual)
-        if lookup.entry is not None and lookup.entry.extra.get("memory"):
-            return _file_stat(lookup.entry.extra["memory"])
+    lookup = await index.get(path.virtual)
+    cached = (lookup.entry.extra.get("memory")
+              if lookup.entry is not None else None)
+    if isinstance(cached, dict):
+        return _file_stat(cached)
     memory = await get_memory(accessor.client, scope.memory_id)
     return _file_stat(memory)

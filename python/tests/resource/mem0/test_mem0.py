@@ -1,4 +1,3 @@
-import pytest
 from pydantic import SecretStr
 
 from mirage.resource.mem0 import Mem0Config
@@ -22,8 +21,10 @@ def test_get_state_redacts_api_key():
     assert "secret" not in str(state)
 
 
-@pytest.mark.asyncio
-async def test_fingerprint_none():
+def test_resource_uses_generic_read_only_surface():
     cfg = Mem0Config(api_key=SecretStr("secret"), user_id="alex")
     res = Mem0Resource(cfg)
-    assert await res.fingerprint("/mem/aaa.json") is None
+    commands = {command.name for command in res.commands()}
+    assert {"cat", "find", "grep", "jq", "ls", "rg", "search",
+            "stat"} <= commands
+    assert {op.name for op in res.ops_list()} == {"read", "readdir", "stat"}

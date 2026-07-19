@@ -12,17 +12,11 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-from mirage.commands.builtin.mem0.cat import cat
-from mirage.commands.builtin.mem0.find import find
-from mirage.commands.builtin.mem0.grep import grep
-from mirage.commands.builtin.mem0.head import head
-from mirage.commands.builtin.mem0.jq import jq
-from mirage.commands.builtin.mem0.ls import ls
-from mirage.commands.builtin.mem0.rg import rg
+from mirage.commands.builtin.generic_bind import make_generic_commands
+from mirage.commands.builtin.mem0.io import IO as _IO
 from mirage.commands.builtin.mem0.search import search
-from mirage.commands.builtin.mem0.stat import stat
-from mirage.commands.builtin.mem0.tail import tail
-from mirage.commands.builtin.mem0.tree import tree
-from mirage.commands.builtin.mem0.wc import wc
 
-COMMANDS = [cat, find, grep, head, jq, ls, rg, search, stat, tail, tree, wc]
+COMMANDS = [
+    *make_generic_commands("mem0", _IO, overrides={"search"}),
+    search,
+]

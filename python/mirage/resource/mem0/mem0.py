@@ -12,18 +12,31 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+from typing import Any
+
 from mirage.accessor.mem0 import Mem0Accessor
-from mirage.core.mem0.glob import resolve_glob as _resolve_glob
+from mirage.commands.builtin.mem0 import COMMANDS
+from mirage.commands.builtin.mem0.io import IO
+from mirage.ops.mem0 import OPS as MEM0_OPS
 from mirage.resource.base import BaseResource
 from mirage.resource.mem0.config import Mem0Config
 from mirage.resource.mem0.prompt import PROMPT
-from mirage.types import ResourceName
+from mirage.types import PathSpec, ResourceName
+
+_MEM0_OPS = {
+    "read_bytes": IO.read_bytes,
+    "read_stream": IO.read_stream,
+    "readdir": IO.readdir,
+    "stat": IO.stat,
+}
 
 
 class Mem0Resource(BaseResource):
 
+    accessor: Mem0Accessor
     name: str = ResourceName.MEM0
     caches_reads: bool = True
+    _ops = _MEM0_OPS
     PROMPT: str = PROMPT
     SUPPORTS_SNAPSHOT: bool = False
 
@@ -31,22 +44,20 @@ class Mem0Resource(BaseResource):
         super().__init__()
         self.config = config
         self.accessor = Mem0Accessor(self.config)
-        from mirage.commands.builtin.mem0 import COMMANDS
-        from mirage.ops.mem0 import OPS as MEM0_VFS_OPS
-
         for fn in COMMANDS:
             self.register(fn)
-        for fn in MEM0_VFS_OPS:
+        for fn in MEM0_OPS:
             self.register_op(fn)
 
-    async def resolve_glob(self, paths, prefix: str = ""):
-        return await _resolve_glob(self.accessor, paths, index=self._index)
+    async def resolve_glob(
+        self,
+        paths: list[str | PathSpec],
+        prefix: str = "",
+    ) -> list[PathSpec]:
+        return await IO.resolve_glob(self.accessor, paths, self._index)
 
-    async def fingerprint(self, path: str) -> str | None:
-        return None
-
-    def get_state(self) -> dict:
+    def get_state(self) -> dict[str, Any]:
         return self.config_state(self.config)
 
-    def load_state(self, state: dict) -> None:
+    def load_state(self, state: dict[str, Any]) -> None:
         pass

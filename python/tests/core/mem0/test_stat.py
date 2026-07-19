@@ -38,6 +38,17 @@ class FakeClient:
         }
 
 
+class CreatedOnlyClient(FakeClient):
+
+    async def get(self, memory_id):
+        return {
+            "id": memory_id,
+            "memory": "x",
+            "created_at": "2026-06-15T00:00:00-07:00",
+            "updated_at": None,
+        }
+
+
 def _accessor():
     acc = Mem0Accessor(Mem0Config(api_key=SecretStr("k"), user_id="alex"))
     acc._client = FakeClient()
@@ -84,16 +95,7 @@ async def test_stat_memory_fallback_get():
 @pytest.mark.asyncio
 async def test_stat_falls_back_to_created_at():
     acc = _accessor()
-
-    async def _get(memory_id):
-        return {
-            "id": memory_id,
-            "memory": "x",
-            "created_at": "2026-06-15T00:00:00-07:00",
-            "updated_at": None
-        }
-
-    acc._client.get = _get
+    acc._client = CreatedOnlyClient()
     fpath = PathSpec(virtual="/mem/zzz.json",
                      directory="/mem",
                      resource_path="zzz.json")

@@ -13,13 +13,20 @@
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 from mirage.types import PathSpec
 
 
-@dataclass
+class ScopeLevel(StrEnum):
+    ROOT = "root"
+    MEMORY = "memory"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True, slots=True)
 class Mem0Scope:
-    level: str
+    level: ScopeLevel
     memory_id: str | None = None
 
 
@@ -35,10 +42,12 @@ def detect(path: PathSpec) -> Mem0Scope:
     """
     key = _backend_key(path)
     if not key:
-        return Mem0Scope(level="root")
+        return Mem0Scope(level=ScopeLevel.ROOT)
     parts = key.split("/")
     if any(p.startswith(".") for p in parts):
-        return Mem0Scope(level="invalid")
-    if len(parts) == 1 and parts[0].endswith(".json"):
-        return Mem0Scope(level="memory", memory_id=parts[0][:-len(".json")])
-    return Mem0Scope(level="invalid")
+        return Mem0Scope(level=ScopeLevel.INVALID)
+    if len(parts) == 1 and len(
+            parts[0]) > len(".json") and parts[0].endswith(".json"):
+        return Mem0Scope(level=ScopeLevel.MEMORY,
+                         memory_id=parts[0][:-len(".json")])
+    return Mem0Scope(level=ScopeLevel.INVALID)

@@ -12,8 +12,7 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-from mirage.ops.mem0.read import read
-from mirage.ops.mem0.readdir import readdir
-from mirage.ops.mem0.stat import stat
+from mirage.commands.builtin.mem0.io import IO
+from mirage.ops.generic import make_generic_ops
 
-OPS = [read, readdir, stat]
+OPS = make_generic_ops("mem0", IO)

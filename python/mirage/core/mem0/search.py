@@ -12,6 +12,8 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+import math
+
 from mirage.accessor.mem0 import Mem0Accessor
 from mirage.core.mem0._client import search_memories
 from mirage.utils.score import format_score
@@ -22,7 +24,7 @@ def _validate(query: str, top_k: int, threshold: float) -> None:
         raise ValueError("search: query is required")
     if top_k <= 0:
         raise ValueError("search: top-k must be positive")
-    if threshold < 0 or threshold > 1:
+    if not math.isfinite(threshold) or threshold < 0 or threshold > 1:
         raise ValueError("search: threshold must be in [0, 1]")
 
 
@@ -30,18 +32,20 @@ async def search_memories_rendered(
     accessor: Mem0Accessor,
     query: str,
     *,
-    prefix: str,
+    mount_prefix: str,
     top_k: int,
     threshold: float,
+    memory_ids: set[str] | None = None,
 ) -> bytes:
     """Run a semantic search in the scope and render ranked results.
 
     Args:
         accessor (Mem0Accessor): mem0 accessor.
         query (str): search query.
-        prefix (str): mount prefix for rendered paths.
+        mount_prefix (str): mount prefix for rendered paths.
         top_k (int): number of results.
         threshold (float): minimum similarity score.
+        memory_ids (set[str] | None): optional result id allowlist.
     """
     _validate(query, top_k, threshold)
     results = await search_memories(
@@ -53,7 +57,10 @@ async def search_memories_rendered(
     )
     lines: list[str] = []
     for r in results:
-        path = f"{prefix}/{r['id']}.json"
+        memory_id = str(r["id"])
+        if memory_ids is not None and memory_id not in memory_ids:
+            continue
+        path = f"{mount_prefix.rstrip('/')}/{memory_id}.json"
         score = format_score(r.get("score"))
         header = path if score is None else f"{path}:{score}"
         lines.append(f"{header}\n{r.get('memory', '')}")

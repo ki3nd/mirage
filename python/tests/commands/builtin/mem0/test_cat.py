@@ -3,7 +3,6 @@ import json
 import pytest
 from pydantic import SecretStr
 
-from mirage.commands.builtin.mem0.cat import cat
 from mirage.resource.mem0 import Mem0Config
 from mirage.resource.mem0.mem0 import Mem0Resource
 from mirage.types import PathSpec
@@ -31,6 +30,17 @@ def _res():
     return res
 
 
+def _command(resource: Mem0Resource, name: str):
+    return next(command.fn for command in resource.commands()
+                if command.name == name and command.filetype is None)
+
+
+async def _bytes(source):
+    if isinstance(source, bytes):
+        return source
+    return b"".join([chunk async for chunk in source])
+
+
 @pytest.mark.asyncio
 async def test_cat_returns_full_json():
     res = _res()
@@ -38,6 +48,6 @@ async def test_cat_returns_full_json():
                  directory="/mem",
                  resource_path="aaa.json",
                  resolved=True)
-    out, _io = await cat.__wrapped__(res.accessor, [p], index=res._index)
-    data = json.loads(out)
+    out, _io = await _command(res, "cat")(res.accessor, [p], index=res.index)
+    data = json.loads(await _bytes(out))
     assert data["memory"] == "loves bananas"

@@ -31,7 +31,7 @@ async def test_search_command():
     p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     out, _io = await search.__wrapped__(res.accessor, [p],
                                         "morning",
-                                        index=res._index)
+                                        index=res.index)
     assert b"aaa.json" in out
     assert b"eats banana" in out
 
@@ -41,4 +41,15 @@ async def test_search_requires_query():
     res = _res()
     p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
     with pytest.raises(ValueError):
-        await search.__wrapped__(res.accessor, [p], index=res._index)
+        await search.__wrapped__(res.accessor, [p], index=res.index)
+
+
+@pytest.mark.asyncio
+async def test_search_rejects_non_semantic_method():
+    res = _res()
+    p = PathSpec(virtual="/mem", directory="/mem", resource_path="")
+    with pytest.raises(ValueError, match="only the 'semantic' method"):
+        await search.__wrapped__(res.accessor, [p],
+                                 "morning",
+                                 method="keyword",
+                                 index=res.index)

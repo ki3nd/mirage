@@ -12,7 +12,11 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-from pydantic import BaseModel, SecretStr, model_validator
+from typing import Literal
+
+from pydantic import BaseModel, PositiveInt, SecretStr, model_validator
+
+ScopeKind = Literal["user", "agent", "run"]
 
 
 class Mem0Config(BaseModel):
@@ -21,14 +25,14 @@ class Mem0Config(BaseModel):
     user_id: str | None = None
     agent_id: str | None = None
     run_id: str | None = None
-    default_page_size: int = 100
-    default_search_limit: int = 10
+    default_page_size: PositiveInt = 100
+    default_search_limit: PositiveInt = 10
 
     @model_validator(mode="after")
     def _exactly_one_entity(self) -> "Mem0Config":
         present = [
-            k for k in ("user_id", "agent_id", "run_id")
-            if getattr(self, k) is not None
+            key for key in ("user_id", "agent_id", "run_id")
+            if getattr(self, key) is not None
         ]
         if len(present) != 1:
             raise ValueError(
@@ -37,13 +41,21 @@ class Mem0Config(BaseModel):
         return self
 
     @property
-    def scope_kind(self) -> str:
-        for kind in ("user", "agent", "run"):
-            if getattr(self, f"{kind}_id") is not None:
-                return kind
-        raise ValueError("no scope set")
+    def scope_kind(self) -> ScopeKind:
+        if self.user_id is not None:
+            return "user"
+        if self.agent_id is not None:
+            return "agent"
+        if self.run_id is not None:
+            return "run"
+        raise RuntimeError("validated Mem0Config has no scope")
 
     @property
     def scope_filter(self) -> dict[str, str]:
-        key = f"{self.scope_kind}_id"
-        return {key: getattr(self, key)}
+        if self.user_id is not None:
+            return {"user_id": self.user_id}
+        if self.agent_id is not None:
+            return {"agent_id": self.agent_id}
+        if self.run_id is not None:
+            return {"run_id": self.run_id}
+        raise RuntimeError("validated Mem0Config has no scope")

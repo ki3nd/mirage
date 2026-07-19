@@ -14,47 +14,47 @@
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from mirage.accessor.mem0 import Mem0Accessor
-from mirage.cache.index import IndexCacheStore
+from mirage.cache.index import NULL_INDEX, IndexCacheStore
 from mirage.core.mem0._client import get_memory
-from mirage.core.mem0.scope import detect
+from mirage.core.mem0.scope import ScopeLevel, detect
 from mirage.types import PathSpec
 from mirage.utils.errors import enoent
 
 
-def _json_bytes(data: dict) -> bytes:
+def _json_bytes(data: dict[str, Any]) -> bytes:
     return json.dumps(data, ensure_ascii=False, indent=2).encode()
 
 
 async def _resolve_memory(
     accessor: Mem0Accessor,
     path: PathSpec,
-    index: IndexCacheStore | None,
-) -> dict:
-    if isinstance(path, str):
-        path = PathSpec.from_str_path(path)
+    index: IndexCacheStore,
+) -> dict[str, Any]:
     scope = detect(path)
-    if scope.level != "memory":
+    if scope.level != ScopeLevel.MEMORY or scope.memory_id is None:
         raise enoent(path)
-    if index is not None:
-        lookup = await index.get(path.virtual)
-        if lookup.entry is not None and lookup.entry.extra.get("memory"):
-            return lookup.entry.extra["memory"]
+    lookup = await index.get(path.virtual)
+    cached = (lookup.entry.extra.get("memory")
+              if lookup.entry is not None else None)
+    if isinstance(cached, dict):
+        return cached
     return await get_memory(accessor.client, scope.memory_id)
 
 
 async def read(
     accessor: Mem0Accessor,
     path: PathSpec,
-    index: IndexCacheStore = None,
+    index: IndexCacheStore = NULL_INDEX,
 ) -> bytes:
     """Read a memory as full JSON bytes.
 
     Args:
         accessor (Mem0Accessor): mem0 accessor.
         path (PathSpec): the memory file path.
-        index (IndexCacheStore | None): index cache.
+        index (IndexCacheStore): index cache.
     """
     memory = await _resolve_memory(accessor, path, index)
     return _json_bytes(memory)
@@ -63,46 +63,14 @@ async def read(
 async def read_stream(
     accessor: Mem0Accessor,
     path: PathSpec,
-    index: IndexCacheStore = None,
+    index: IndexCacheStore = NULL_INDEX,
 ) -> AsyncIterator[bytes]:
     """Stream a memory as full JSON bytes (used by jq).
 
     Args:
         accessor (Mem0Accessor): mem0 accessor.
         path (PathSpec): the memory file path.
-        index (IndexCacheStore | None): index cache.
+        index (IndexCacheStore): index cache.
     """
     memory = await _resolve_memory(accessor, path, index)
     yield _json_bytes(memory)
-
-
-async def read_content(
-    accessor: Mem0Accessor,
-    path: PathSpec,
-    index: IndexCacheStore = None,
-) -> bytes:
-    """Read only the memory text (used by grep/rg).
-
-    Args:
-        accessor (Mem0Accessor): mem0 accessor.
-        path (PathSpec): the memory file path.
-        index (IndexCacheStore | None): index cache.
-    """
-    memory = await _resolve_memory(accessor, path, index)
-    text = memory.get("memory", "")
-    return (text + "\n").encode()
-
-
-async def read_content_stream(
-    accessor: Mem0Accessor,
-    path: PathSpec,
-    index: IndexCacheStore = None,
-) -> AsyncIterator[bytes]:
-    """Stream the memory text (used by grep/rg single-file path).
-
-    Args:
-        accessor (Mem0Accessor): mem0 accessor.
-        path (PathSpec): the memory file path.
-        index (IndexCacheStore | None): index cache.
-    """
-    yield await read_content(accessor, path, index)

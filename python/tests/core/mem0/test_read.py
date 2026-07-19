@@ -5,7 +5,7 @@ from pydantic import SecretStr
 
 from mirage.accessor.mem0 import Mem0Accessor
 from mirage.cache.index import RAMIndexCacheStore
-from mirage.core.mem0.read import read, read_content
+from mirage.core.mem0.read import read
 from mirage.core.mem0.readdir import readdir
 from mirage.resource.mem0.config import Mem0Config
 from mirage.types import PathSpec
@@ -57,18 +57,6 @@ async def test_read_full_json_from_cache_no_get():
     data = json.loads(await read(acc, fpath, index))
     assert data["categories"] == ["food"]
     assert acc._client.get_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_read_content_only_memory_text():
-    acc = _accessor()
-    index = RAMIndexCacheStore()
-    root = PathSpec(virtual="/mem", directory="/mem", resource_path="")
-    await readdir(acc, root, index)
-    fpath = PathSpec(virtual="/mem/aaa.json",
-                     directory="/mem",
-                     resource_path="aaa.json")
-    assert await read_content(acc, fpath, index) == b"loves bananas\n"
 
 
 @pytest.mark.asyncio

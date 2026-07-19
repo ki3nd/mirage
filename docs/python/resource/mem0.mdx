@@ -66,21 +66,18 @@ jq '.memory' /memory/6d1ba0fc-1f0c-495b-b5b1-9141b2674b37.json
 wc /memory/6d1ba0fc-1f0c-495b-b5b1-9141b2674b37.json
 ```
 
-### grep and rg match content only
+### grep and rg search the JSON files
 
-`grep` and `rg` match the memory **text** (the `memory` field), never metadata
-such as ids, categories, or timestamps. Because the mount is a directory, plain
-`grep` needs `-r` (or a glob); `rg` recurses by default:
+`grep` and `rg` follow normal filesystem semantics and search the same JSON
+bytes that `cat` returns. A match can therefore come from the memory text or
+from metadata such as categories and timestamps. Because the mount is a
+directory, plain `grep` needs `-r` (or a glob); `rg` recurses by default:
 
 ```bash
 grep -r "banana" /memory/
 grep "banana" /memory/*.json
 rg "banana" /memory/
 ```
-
-This is a deliberate divergence: `cat` shows the full JSON, but `grep`/`rg` see
-only the memory content, so a search for `food` will not match a memory just
-because `food` appears in its `categories`.
 
 ## Search
 
@@ -105,7 +102,7 @@ User asked for food recommendations to stay full in the morning
 
 The resource uses Mirage's index cache for the virtual tree. The first `ls`
 fetches the scope's memories (following Mem0 pagination) and primes the cache;
-`cat`, `stat`, `grep`, and `rg` reuse the cached memories until the index
+read commands reuse the cached metadata and rendered bytes until the cache
 expires or the workspace is recreated. `search` always calls the Mem0 API
 directly and is not cached.
 
@@ -154,8 +151,8 @@ if __name__ == "__main__":
 | `cat` | Read a memory's full JSON |
 | `jq` | Query a memory's JSON fields |
 | `head` / `tail` | Read the first or last lines/bytes of a memory JSON |
-| `grep` | Content-only matching over memory text (use `-r` on a directory) |
-| `rg` | Content-only matching, recursive by default |
+| `grep` | Search rendered JSON (use `-r` on a directory) |
+| `rg` | Search rendered JSON, recursive by default |
 | `find` | Search the virtual tree by name, type, depth, and size |
 | `wc` | Count lines, words, bytes, characters, and max line length |
 | `stat` | Show a memory's size and timestamps |

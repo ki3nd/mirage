@@ -3,7 +3,7 @@ from pydantic import SecretStr
 
 from mirage.accessor.mem0 import Mem0Accessor
 from mirage.cache.index import RAMIndexCacheStore
-from mirage.core.mem0.glob import resolve_glob
+from mirage.commands.builtin.mem0.io import resolve_glob
 from mirage.resource.mem0.config import Mem0Config
 from mirage.types import PathSpec
 

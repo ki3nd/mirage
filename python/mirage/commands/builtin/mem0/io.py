@@ -12,13 +12,20 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
-from mirage.accessor.mem0 import Mem0Accessor
-from mirage.core.mem0.read import read as core_read
-from mirage.ops.registry import op
-from mirage.types import PathSpec
+from mirage.commands.builtin.generic_bind import CommandIO
+from mirage.core.mem0.read import read as _read
+from mirage.core.mem0.read import read_stream as _read_stream
+from mirage.core.mem0.readdir import readdir as _readdir
+from mirage.core.mem0.stat import stat as _stat
 
+IO = CommandIO(
+    readdir=_readdir,
+    read_bytes=_read,
+    read_stream=_read_stream,
+    stat=_stat,
+    is_mounted=lambda _accessor: True,
+    is_dir_name=lambda _accessor, child: not child.endswith(".json"),
+    local=False,
+)
 
-@op("read", resource="mem0")
-async def read(accessor: Mem0Accessor, path: PathSpec, *, index,
-               **kwargs) -> bytes:
-    return await core_read(accessor, path, index)
+resolve_glob = IO.resolve_glob

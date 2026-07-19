@@ -12,14 +12,17 @@
 # limitations under the License.
 # ========= Copyright 2026 @ Strukto.AI All Rights Reserved. =========
 
+from typing import Any
+
+from mem0 import AsyncMemoryClient
 from mem0.client.types import GetAllMemoryOptions, SearchMemoryOptions
 
 
 async def get_all_memories(
-    client,
-    filters: dict,
+    client: AsyncMemoryClient,
+    filters: dict[str, str],
     page_size: int = 100,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Fetch all memories for a scope, following pagination.
 
     Args:
@@ -27,7 +30,7 @@ async def get_all_memories(
         filters (dict): mem0 entity filter, e.g. {"user_id": "alex"}.
         page_size (int): page size per request.
     """
-    results: list[dict] = []
+    results: list[dict[str, Any]] = []
     page = 1
     while True:
         options = GetAllMemoryOptions(
@@ -44,7 +47,8 @@ async def get_all_memories(
     return results
 
 
-async def get_memory(client, memory_id: str) -> dict:
+async def get_memory(client: AsyncMemoryClient,
+                     memory_id: str) -> dict[str, Any]:
     """Fetch one memory by id.
 
     Args:
@@ -55,12 +59,12 @@ async def get_memory(client, memory_id: str) -> dict:
 
 
 async def search_memories(
-    client,
+    client: AsyncMemoryClient,
     query: str,
-    filters: dict,
+    filters: dict[str, str],
     top_k: int = 10,
     threshold: float = 0.0,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Semantic search within a scope.
 
     Args:
