@@ -18,7 +18,9 @@ import pytest
 
 from mirage.accessor.base import NOOPAccessor
 from mirage.types import PathSpec
-from mirage.utils.glob_walk import (expand_pattern, has_glob, is_word_shaped,
+from mirage.utils.glob_walk import (DEFAULT_MAX_GLOB_MATCHES, expand_pattern,
+                                    has_glob, is_word_shaped,
+                                    make_resolve_glob, resolve_glob_with,
                                     spell_match)
 
 TREE = {
@@ -170,3 +172,131 @@ async def test_dir_shaped_matches_keep_virtual():
     spec = glob_spec("/alpha/*.txt", "").dir
     matched = await expand_pattern(fake_readdir, NOOPAccessor(), spec, None)
     assert [m.raw_path for m in matched] == ["/alpha/b.txt"]
+
+
+@pytest.mark.asyncio
+async def test_resolve_glob_with_passes_resolved_through():
+    spec = PathSpec.from_str_path("/alpha/b.txt", "alpha/b.txt")
+    result = await resolve_glob_with(fake_readdir, NOOPAccessor(), [spec],
+                                     None)
+    assert result == [spec]
+    assert CALLS == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_glob_with_expands_pattern():
+    spec = glob_spec("/alpha/*.txt", "")
+    result = await resolve_glob_with(fake_readdir, NOOPAccessor(), [spec],
+                                     None)
+    assert [p.virtual for p in result] == ["/alpha/b.txt"]
+    assert result[0].resolved
+
+
+@pytest.mark.asyncio
+async def test_resolve_glob_with_expands_mid_path_pattern():
+    spec = glob_spec("/notion/pages/Demo_page__*/page.md", "/notion")
+    result = await resolve_glob_with(fake_readdir, NOOPAccessor(), [spec],
+                                     None)
+    assert [p.virtual
+            for p in result] == ["/notion/pages/Demo_page__uuid1/page.md"]
+    assert all("*" not in c for c in CALLS)
+
+
+@pytest.mark.asyncio
+async def test_resolve_glob_with_unmatched_word_stays_literal():
+    spec = glob_spec("/notion/pages/Missing__*/page.md", "/notion")
+    result = await resolve_glob_with(fake_readdir, NOOPAccessor(), [spec],
+                                     None)
+    assert len(result) == 1
+    assert result[0].virtual == "/notion/pages/Missing__*/page.md"
+    assert result[0].resolved
+    assert result[0].pattern is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_glob_with_unmatched_dir_shaped_dropped():
+    spec = PathSpec(
+        virtual="/notion/pages/",
+        directory="/notion/pages/",
+        resource_path="pages",
+        pattern="Missing*",
+        resolved=False,
+    )
+    result = await resolve_glob_with(fake_readdir, NOOPAccessor(), [spec],
+                                     None)
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_glob_with_cap_truncates_and_warns(caplog):
+    spec = glob_spec("/notion/pages/*", "/notion")
+    with caplog.at_level("WARNING"):
+        result = await resolve_glob_with(fake_readdir, NOOPAccessor(), [spec],
+                                         None, 1)
+    assert [p.virtual for p in result] == ["/notion/pages/Demo_page__uuid1"]
+    assert "exceeds limit" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_resolve_glob_with_no_cap_keeps_all_matches():
+    spec = glob_spec("/notion/pages/*", "/notion")
+    result = await resolve_glob_with(fake_readdir, NOOPAccessor(), [spec],
+                                     None)
+    assert len(result) == 2
+
+
+@pytest.mark.asyncio
+async def test_make_resolve_glob_binds_readdir():
+    resolve = make_resolve_glob(fake_readdir)
+    spec = glob_spec("/notion/pages/Demo_page__*/page.md", "/notion")
+    result = await resolve(NOOPAccessor(), [spec], None)
+    assert [p.virtual
+            for p in result] == ["/notion/pages/Demo_page__uuid1/page.md"]
+
+
+@pytest.mark.asyncio
+async def test_make_resolve_glob_passthrough():
+    resolve = make_resolve_glob(fake_readdir)
+    resolved_spec = PathSpec.from_str_path("/notion/pages/Roadmap__uuid2",
+                                           "pages/Roadmap__uuid2")
+    result = await resolve(NOOPAccessor(), [resolved_spec], None)
+    assert result[0] is resolved_spec
+
+
+@pytest.mark.asyncio
+async def test_make_resolve_glob_truncates_at_cap():
+    resolve = make_resolve_glob(fake_readdir, max_glob_matches=1)
+    spec = glob_spec("/notion/pages/*", "/notion")
+    result = await resolve(NOOPAccessor(), [spec], None)
+    assert len(result) == 1
+
+
+def test_make_resolve_glob_default_cap():
+    assert DEFAULT_MAX_GLOB_MATCHES == 10000
+
+
+@pytest.mark.asyncio
+async def test_make_resolve_glob_zero_match_word_keeps_literal():
+    resolve = make_resolve_glob(fake_readdir)
+    spec = glob_spec("/notion/pages/*.nope", "/notion")
+    out = await resolve(NOOPAccessor(), [spec], None)
+    assert len(out) == 1
+    assert out[0].virtual == "/notion/pages/*.nope"
+    assert out[0].pattern is None
+    assert out[0].resolved
+
+
+@pytest.mark.asyncio
+async def test_make_resolve_glob_zero_match_dir_shape_stays_empty():
+    resolve = make_resolve_glob(fake_readdir)
+    spec = glob_spec("/notion/pages/*.nope", "/notion").dir
+    out = await resolve(NOOPAccessor(), [spec], None)
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_make_resolve_glob_index_defaults_to_null():
+    resolve = make_resolve_glob(fake_readdir)
+    spec = glob_spec("/notion/pages/Demo*", "/notion")
+    result = await resolve(NOOPAccessor(), [spec])
+    assert [p.virtual for p in result] == ["/notion/pages/Demo_page__uuid1"]

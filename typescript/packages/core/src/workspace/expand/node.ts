@@ -19,28 +19,25 @@ import type { Session } from '../session/session.ts'
 import { expandTilde } from '../../utils/path.ts'
 import { homeDir } from '../session/shell_dirs.ts'
 import { shlexSplit } from '../../utils/shlex.ts'
+import { evaluateArith } from '../../shell/arith.ts'
+import { ArithError } from '../../shell/errors.ts'
 import { ARITH_DELIMITERS, ARITH_OPERATORS } from './constants.ts'
 import { expandBraces, lookupVar, type TSNodeLike } from './variable.ts'
 
 export type ExecuteFn = (command: string, opts: { sessionId: string }) => Promise<IOResult>
 
-function unescapeUnquoted(text: string): string {
+export function unescapeUnquoted(text: string): string {
   if (!text.includes('\\')) return text
   const parts = shlexSplit(text)
   return parts[0] ?? text
 }
 
-export function safeEval(expr: string): number {
-  const tokens = tokenizeArith(expr)
-  const parser = new ArithParser(tokens)
-  const result = parser.parseExpr()
-  if (!parser.atEnd()) {
-    throw new Error(`unsafe arithmetic: ${expr}`)
-  }
-  return Math.trunc(result)
-}
-
-async function expandArith(
+// Reconstruct arithmetic expression text for the shared evaluator.
+// `$`-expansions substitute textually (bash performs expansions before
+// arithmetic evaluation), while bare variable names stay as names so the
+// evaluator can resolve and assign them (`$(( y = 3 ))` needs `y`, not
+// its value).
+export async function expandArith(
   tsNode: TSNodeLike,
   session: Session,
   executeFn: ExecuteFn,
@@ -53,7 +50,8 @@ async function expandArith(
       child.type === NT.BINARY_EXPRESSION ||
       child.type === NT.UNARY_EXPRESSION ||
       child.type === NT.PARENTHESIZED_EXPRESSION ||
-      child.type === NT.TERNARY_EXPRESSION
+      child.type === NT.TERNARY_EXPRESSION ||
+      child.type === NT.POSTFIX_EXPRESSION
     ) {
       parts.push(await expandArith(child, session, executeFn, callStack))
     } else if (ARITH_OPERATORS.has(child.type)) {
@@ -67,7 +65,7 @@ async function expandArith(
     ) {
       parts.push(await expandNode(child, session, executeFn, callStack))
     } else if (child.type === NT.VARIABLE_NAME) {
-      parts.push(session.env[child.text] ?? '0')
+      parts.push(child.text)
     } else {
       parts.push(await expandNode(child, session, executeFn, callStack))
     }
@@ -96,6 +94,11 @@ export async function expandNode(
 
   if (ntype === NT.SIMPLE_EXPANSION) {
     const raw = tsNode.text
+    const special = tsNode.namedChildren.find((c) => c.type === NT.SPECIAL_VARIABLE_NAME)
+    if (special !== undefined) {
+      // lastIndexOf would split `$$` into prefix "$" + variable "".
+      return lookupVar(special.text, session, callStack)
+    }
     const dollar = raw.lastIndexOf('$')
     const prefix = raw.slice(0, dollar)
     const variable = raw.slice(dollar + 1)
@@ -103,7 +106,15 @@ export async function expandNode(
   }
 
   if (ntype === NT.EXPANSION) {
-    return expandBraces(tsNode, session.env, callStack, session.arrays)
+    // In-string whitespace attaches to the node's leading `${` token
+    // ("${a} ${b}" parses the space into the second expansion);
+    // preserve it, mirroring the simple-expansion prefix handling.
+    const raw = tsNode.text
+    const brace = raw.indexOf('${')
+    const prefix = brace > 0 ? raw.slice(0, brace) : ''
+    const expandChild = (c: TSNodeLike): Promise<string> =>
+      expandNode(c, session, executeFn, callStack)
+    return prefix + (await expandBraces(tsNode, session, callStack, expandChild))
   }
 
   if (ntype === NT.COMMAND_SUBSTITUTION) {
@@ -123,11 +134,16 @@ export async function expandNode(
 
   if (ntype === NT.ARITHMETIC_EXPANSION) {
     const expr = await expandArith(tsNode, session, executeFn, callStack)
+    let value: bigint
+    let updates: Record<string, string>
     try {
-      return String(safeEval(expr))
-    } catch {
-      return tsNode.text
+      ;({ value, updates } = evaluateArith(expr, session.env))
+    } catch (err) {
+      if (err instanceof ArithError) return tsNode.text
+      throw err
     }
+    Object.assign(session.env, updates)
+    return value.toString()
   }
 
   if (ntype === NT.CONCATENATION) {
@@ -181,167 +197,4 @@ export async function expandNode(
   }
 
   return tsNode.text
-}
-
-type ArithToken = { kind: 'num'; value: number } | { kind: 'op'; value: string }
-
-function tokenizeArith(expr: string): ArithToken[] {
-  const tokens: ArithToken[] = []
-  let i = 0
-  const s = expr.trim()
-  while (i < s.length) {
-    const c = s[i]
-    if (c === undefined) break
-    if (c === ' ' || c === '\t') {
-      i++
-      continue
-    }
-    if (c >= '0' && c <= '9') {
-      let j = i
-      while (j < s.length && s[j] !== undefined && /[0-9]/.test(s[j] ?? '')) j++
-      tokens.push({ kind: 'num', value: parseInt(s.slice(i, j), 10) })
-      i = j
-      continue
-    }
-    const two = s.slice(i, i + 2)
-    if (
-      two === '**' ||
-      two === '==' ||
-      two === '!=' ||
-      two === '<=' ||
-      two === '>=' ||
-      two === '&&' ||
-      two === '||'
-    ) {
-      tokens.push({ kind: 'op', value: two })
-      i += 2
-      continue
-    }
-    if ('+-*/%<>!?():'.includes(c)) {
-      tokens.push({ kind: 'op', value: c })
-      i++
-      continue
-    }
-    throw new Error(`unsafe arithmetic: ${expr}`)
-  }
-  return tokens
-}
-
-const PRECEDENCE: Record<string, number> = {
-  '||': 1,
-  '&&': 2,
-  '==': 3,
-  '!=': 3,
-  '<': 4,
-  '>': 4,
-  '<=': 4,
-  '>=': 4,
-  '+': 5,
-  '-': 5,
-  '*': 6,
-  '/': 6,
-  '%': 6,
-  '**': 7,
-}
-
-class ArithParser {
-  private pos = 0
-  constructor(private readonly tokens: ArithToken[]) {}
-
-  atEnd(): boolean {
-    return this.pos >= this.tokens.length
-  }
-
-  private peek(): ArithToken | null {
-    return this.tokens[this.pos] ?? null
-  }
-
-  private consume(): ArithToken {
-    const t = this.tokens[this.pos]
-    if (t === undefined) throw new Error('unexpected end of arithmetic expression')
-    this.pos++
-    return t
-  }
-
-  parseExpr(): number {
-    return this.parseBinary(0)
-  }
-
-  private parseBinary(minPrec: number): number {
-    let left = this.parseUnary()
-    for (;;) {
-      const t = this.peek()
-      if (t?.kind !== 'op') break
-      const prec = PRECEDENCE[t.value]
-      if (prec === undefined || prec < minPrec) break
-      this.consume()
-      const rightAssoc = t.value === '**'
-      const right = this.parseBinary(rightAssoc ? prec : prec + 1)
-      left = applyBinary(t.value, left, right)
-    }
-    return left
-  }
-
-  private parseUnary(): number {
-    const t = this.peek()
-    if (t?.kind === 'op' && (t.value === '-' || t.value === '+' || t.value === '!')) {
-      this.consume()
-      const operand = this.parseUnary()
-      if (t.value === '-') return -operand
-      if (t.value === '!') return operand === 0 ? 1 : 0
-      return operand
-    }
-    return this.parseAtom()
-  }
-
-  private parseAtom(): number {
-    const t = this.consume()
-    if (t.kind === 'num') return t.value
-    if (t.value === '(') {
-      const val = this.parseExpr()
-      const close = this.consume()
-      if (close.kind !== 'op' || close.value !== ')') {
-        throw new Error('expected )')
-      }
-      return val
-    }
-    throw new Error(`unsafe arithmetic token: ${t.value}`)
-  }
-}
-
-function applyBinary(op: string, a: number, b: number): number {
-  switch (op) {
-    case '+':
-      return a + b
-    case '-':
-      return a - b
-    case '*':
-      return a * b
-    case '/':
-      if (b === 0) throw new Error('division by zero')
-      return Math.trunc(a / b)
-    case '%':
-      if (b === 0) throw new Error('modulo by zero')
-      return a % b
-    case '**':
-      return a ** b
-    case '==':
-      return a === b ? 1 : 0
-    case '!=':
-      return a !== b ? 1 : 0
-    case '<':
-      return a < b ? 1 : 0
-    case '>':
-      return a > b ? 1 : 0
-    case '<=':
-      return a <= b ? 1 : 0
-    case '>=':
-      return a >= b ? 1 : 0
-    case '&&':
-      return a !== 0 && b !== 0 ? 1 : 0
-    case '||':
-      return a !== 0 || b !== 0 ? 1 : 0
-    default:
-      throw new Error(`unsupported arithmetic op: ${op}`)
-  }
 }

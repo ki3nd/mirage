@@ -14,7 +14,11 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, TypeAlias
+
+import tree_sitter
+
+FunctionBody: TypeAlias = list[tree_sitter.Node]
 
 
 class NodeType(StrEnum):
@@ -51,6 +55,7 @@ class NodeType(StrEnum):
     COMMAND_SUBSTITUTION = "command_substitution"
     ARITHMETIC_EXPANSION = "arithmetic_expansion"
     CONCATENATION = "concatenation"
+    BRACE_EXPRESSION = "brace_expression"
     STRING = "string"
     STRING_CONTENT = "string_content"
     RAW_STRING = "raw_string"
@@ -108,6 +113,8 @@ class NodeType(StrEnum):
     NEGATION_EXPRESSION = "negation_expression"
     PARENTHESIZED_EXPRESSION = "parenthesized_expression"
     TERNARY_EXPRESSION = "ternary_expression"
+    POSTFIX_EXPRESSION = "postfix_expression"
+    ARITH_OPEN = "(("
     TEST_OPERATOR = "test_operator"
     SPECIAL_VARIABLE_NAME = "special_variable_name"
     COMMENT = "comment"
@@ -194,9 +201,13 @@ class ShellBuiltin(StrEnum):
     # python exec
     PYTHON = "python"
     PYTHON3 = "python3"
+    # javascript exec
+    NODE = "node"
+    JS = "js"
     # commands handled by executor
     XARGS = "xargs"
     TIMEOUT = "timeout"
     BREAK = "break"
     CONTINUE = "continue"
     RETURN = "return"
+    EXIT = "exit"

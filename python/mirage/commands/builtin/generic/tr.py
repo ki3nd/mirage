@@ -1,8 +1,9 @@
 from collections.abc import AsyncIterator, Callable
 
-from mirage.accessor.base import Accessor
 from mirage.commands.builtin.utils.escapes import interpret_escapes
 from mirage.commands.builtin.utils.stream import _resolve_source
+from mirage.commands.spec.types import CommandName
+from mirage.commands.spec.usage import extra_operand_error
 from mirage.io.types import ByteSource, IOResult
 from mirage.types import PathSpec
 
@@ -58,12 +59,13 @@ async def tr(
     texts: tuple[str, ...],
     *,
     read_stream: Callable[..., AsyncIterator[bytes]],
-    accessor: Accessor | None = None,
-    stdin: AsyncIterator[bytes] | bytes | None = None,
+    stdin: ByteSource | None = None,
     delete: bool = False,
     squeeze: bool = False,
     complement: bool = False,
 ) -> tuple[ByteSource | None, IOResult]:
+    if len(texts) > 2:
+        raise extra_operand_error(CommandName.TR, texts[2])
     if not texts:
         raise ValueError("tr: usage: tr [-d] [-s] [-c] set1 [set2] [path]")
     set1 = _expand_ranges(interpret_escapes(texts[0]))
@@ -84,7 +86,7 @@ async def tr(
 
     cache: list[str] = []
     if paths:
-        source: AsyncIterator[bytes] = read_stream(accessor, paths[0])
+        source: AsyncIterator[bytes] = read_stream(paths[0])
         cache = [paths[0].mount_path]
     else:
         source = _resolve_source(stdin)

@@ -5,7 +5,10 @@
     "has_provision": true,
     "has_write": true,
     "resources": [
+      "box",
       "databricks_volume",
+      "dropbox",
+      "gdrive",
       "opfs",
       "ram",
       "s3"
@@ -60,9 +63,15 @@
       "value_optional": false
     }
   ],
-  "positional": [],
-  "rest": {
-    "kind": "path",
-    "provided_by": []
-  }
+  "positional": [
+    {
+      "kind": "path",
+      "provided_by": []
+    },
+    {
+      "kind": "path",
+      "provided_by": []
+    }
+  ],
+  "rest": null
 }

@@ -26,14 +26,44 @@ SPECS: dict[str, CommandSpec] = {
         options=(Option(short="-c", value_kind=OperandKind.TEXT), ),
         rest=Operand(kind=OperandKind.TEXT),
     ),
+    'js':
+    CommandSpec(
+        description="Run JavaScript on a sandboxed quickjs engine.",
+        options=(
+            Option(short="-e",
+                   value_kind=OperandKind.TEXT,
+                   description="Evaluate the next argument as a script."),
+            Option(short="-m",
+                   long="--module",
+                   description=("Run as an ES module (top-level "
+                                "import/export/await); .mjs files "
+                                "select this automatically.")),
+        ),
+        rest=Operand(kind=OperandKind.TEXT),
+    ),
+    'node':
+    CommandSpec(
+        description="Run JavaScript on a sandboxed quickjs engine.",
+        options=(
+            Option(short="-e",
+                   value_kind=OperandKind.TEXT,
+                   description="Evaluate the next argument as a script."),
+            Option(short="-m",
+                   long="--module",
+                   description=("Run as an ES module (top-level "
+                                "import/export/await); .mjs files "
+                                "select this automatically.")),
+        ),
+        rest=Operand(kind=OperandKind.TEXT),
+    ),
     'mktemp':
     CommandSpec(
         options=(
             Option(short="-d"),
-            Option(short="-p", value_kind=OperandKind.TEXT),
+            Option(short="-p", value_kind=OperandKind.PATH),
             Option(short="-t"),
         ),
-        rest=Operand(kind=OperandKind.TEXT),
+        positional=(Operand(kind=OperandKind.TEXT), ),
     ),
     'bc':
     CommandSpec(
@@ -86,7 +116,7 @@ SPECS: dict[str, CommandSpec] = {
             Option(short="-R",
                    description="Output date in RFC 5322 email format."),
         ),
-        rest=Operand(kind=OperandKind.TEXT),
+        positional=(Operand(kind=OperandKind.TEXT), ),
     ),
     'sleep':
     CommandSpec(

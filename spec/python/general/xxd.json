@@ -5,17 +5,20 @@
     "has_provision": true,
     "has_write": false,
     "resources": [
+      "box",
       "chroma",
       "databricks_volume",
       "dify",
       "discord",
       "disk",
+      "dropbox",
       "email",
       "gdocs",
       "gdrive",
       "github",
       "github_ci",
       "gmail",
+      "gridfs",
       "gsheets",
       "gslides",
       "hf_buckets",
@@ -104,9 +107,15 @@
       "value_optional": false
     }
   ],
-  "positional": [],
-  "rest": {
-    "kind": "path",
-    "provided_by": []
-  }
+  "positional": [
+    {
+      "kind": "path",
+      "provided_by": []
+    },
+    {
+      "kind": "path",
+      "provided_by": []
+    }
+  ],
+  "rest": null
 }

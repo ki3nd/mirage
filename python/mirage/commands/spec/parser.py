@@ -249,7 +249,11 @@ def parse_command(
                                         and mixed[2] is None):
                 # A declared value flag (alone or ending a cluster) with no
                 # argument left on the line. GNU reports the flag character.
-                needy = tok[1:] if tok in value_flags else mixed[1][1:]
+                if tok in value_flags:
+                    needy = tok[1:]
+                else:
+                    assert mixed is not None
+                    needy = mixed[1][1:]
                 needs_value_options.append(needy)
             else:
                 # GNU reports the first offending character, not the token.
@@ -272,6 +276,12 @@ def parse_command(
                                    if not any(name in flags
                                               for name in op.provided_by))
 
+    # Overflow operands past the declared positional slots pass through
+    # classified like the last slot (TEXT when there is none), so a
+    # fixed-arity command receives them and raises its own extra-operand
+    # UsageError (#452). The parser classifies, it never drops or raises.
+    overflow_kind = positional[-1] if positional else OperandKind.TEXT
+
     classified: list[tuple[str, OperandKind]] = []
     raw_operands: list[tuple[str, OperandKind]] = []
     for j, arg in enumerate(raw_args):
@@ -280,7 +290,7 @@ def parse_command(
         elif rest_kind is not None:
             kind = rest_kind
         else:
-            continue
+            kind = overflow_kind
         if kind == OperandKind.PATH:
             classified.append((resolve_path(arg, cwd), OperandKind.PATH))
             raw_operands.append((arg, OperandKind.PATH))
@@ -327,8 +337,8 @@ def parse_command(
     )
 
 
-def parse_to_kwargs(parsed: ParsedArgs) -> dict[str, str | bool | list[str]]:
-    result: dict[str, str | bool | list[str]] = {}
+def parse_to_kwargs(parsed: ParsedArgs) -> dict[str, object]:
+    result: dict[str, object] = {}
     for key, value in parsed.flags.items():
         result[flag_kwarg_name(key)] = value
     return result
