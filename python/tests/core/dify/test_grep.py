@@ -44,6 +44,7 @@ async def test_grep_bytes_matches_streamed_lines(monkeypatch, dify_accessor,
 @pytest.mark.asyncio
 async def test_grep_bytes_bounds_workers_and_preserves_order(
         monkeypatch, dify_accessor, dify_index):
+    dify_accessor.config.max_concurrency = 3
     paths = [
         PathSpec.from_str_path(f"/knowledge/{position}", str(position))
         for position in range(12)
@@ -56,4 +57,4 @@ async def test_grep_bytes_bounds_workers_and_preserves_order(
     assert output.decode().splitlines() == [
         f"{path.virtual}:1:{path.virtual} match" for path in paths
     ]
-    assert read_stream.max_active == grep._MAX_GREP_WORKERS
+    assert read_stream.max_active == dify_accessor.config.max_concurrency

@@ -8,8 +8,6 @@ from mirage.core.dify.read import read_stream
 from mirage.io.async_line_iterator import AsyncLineIterator
 from mirage.types import PathSpec
 
-_MAX_GREP_WORKERS = 10
-
 
 async def grep_bytes(accessor: DifyAccessor,
                      paths: list[PathSpec],
@@ -25,7 +23,7 @@ async def grep_bytes(accessor: DifyAccessor,
     results: list[list[str] | None] = [None] * len(paths)
     for position, path in enumerate(paths):
         queue.put_nowait((position, path))
-    worker_count = min(_MAX_GREP_WORKERS, len(paths))
+    worker_count = min(accessor.config.max_concurrency, len(paths))
     for _ in range(worker_count):
         queue.put_nowait(None)
     async with asyncio.TaskGroup() as group:
