@@ -11,6 +11,8 @@ class DifyConfig(BaseModel):
     slug_metadata_name: str = "slug"
     max_concurrency: PositiveInt = 10
     request_timeout: PositiveFloat = 30.0
+    retry_attempts: PositiveInt = 4
+    retry_max_delay: PositiveFloat = 30.0
 
     @field_validator("base_url")
     @classmethod

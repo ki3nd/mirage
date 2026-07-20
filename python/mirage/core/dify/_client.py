@@ -1,54 +1,65 @@
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from functools import partial
 from typing import Any
 
 import httpx
+from tenacity import (AsyncRetrying, RetryCallState, before_sleep_log,
+                      retry_if_exception, stop_after_attempt)
 
 from mirage.accessor.dify import DifyAccessor
 
 logger = logging.getLogger(__name__)
 
-MAX_ATTEMPTS = 4
-MAX_RETRY_DELAY = 30.0
-
 
 async def dify_request(accessor: DifyAccessor, method: str, endpoint: str,
                        **request_kwargs: Any) -> dict[str, Any]:
-    for attempt in range(MAX_ATTEMPTS):
-        try:
-            response = await accessor.request(method, endpoint,
-                                              **request_kwargs)
-        except httpx.TransportError:
-            if attempt + 1 >= MAX_ATTEMPTS:
-                raise
-            logger.warning("Dify transport error requesting %s", endpoint)
-            await asyncio.sleep(2**attempt)
-            continue
-        retryable = (response.status_code == 429
-                     or 500 <= response.status_code < 600)
-        if retryable and attempt + 1 < MAX_ATTEMPTS:
-            logger.warning("Dify request to %s returned HTTP %s", endpoint,
-                           response.status_code)
-            await asyncio.sleep(retry_delay(response, attempt))
-            continue
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise ValueError("Dify response must be a JSON object")
-        return payload
-    raise RuntimeError(f"Dify request failed: {endpoint}")
+    retrying = AsyncRetrying(
+        sleep=asyncio.sleep,
+        stop=stop_after_attempt(accessor.config.retry_attempts),
+        wait=partial(_retry_delay, max_delay=accessor.config.retry_max_delay),
+        retry=retry_if_exception(_is_retryable_error),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    response: httpx.Response = await retrying(_request_once, accessor, method,
+                                              endpoint, **request_kwargs)
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("Dify response must be a JSON object")
+    return payload
 
 
-def retry_delay(response: httpx.Response, attempt: int) -> float:
-    retry_after = response.headers.get("Retry-After")
+async def _request_once(accessor: DifyAccessor, method: str, endpoint: str,
+                        **request_kwargs: Any) -> httpx.Response:
+    response = await accessor.request(method, endpoint, **request_kwargs)
+    response.raise_for_status()
+    return response
+
+
+def _is_retryable_error(error: BaseException) -> bool:
+    if isinstance(error, httpx.TransportError):
+        return True
+    if not isinstance(error, httpx.HTTPStatusError):
+        return False
+    status_code = error.response.status_code
+    return status_code == 429 or 500 <= status_code < 600
+
+
+def _retry_delay(retry_state: RetryCallState, max_delay: float) -> float:
+    outcome = retry_state.outcome
+    error = outcome.exception() if outcome is not None else None
+    retry_after: str | None = None
+    if isinstance(error, httpx.HTTPStatusError):
+        retry_after = error.response.headers.get("Retry-After")
     if retry_after is not None:
         try:
-            return min(MAX_RETRY_DELAY, max(0.0, float(retry_after)))
+            return min(max_delay, max(0.0, float(retry_after)))
         except ValueError:
             logger.debug("Ignoring invalid Dify Retry-After value %r",
                          retry_after)
-    return min(MAX_RETRY_DELAY, float(2**attempt))
+    return min(max_delay, float(2**(retry_state.attempt_number - 1)))
 
 
 async def dify_get(accessor: DifyAccessor,

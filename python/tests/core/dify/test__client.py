@@ -183,6 +183,34 @@ async def test_dify_get_raises_after_retryable_errors(monkeypatch, httpx_mock):
 
 
 @pytest.mark.asyncio
+async def test_dify_get_uses_configured_retry_policy(monkeypatch, httpx_mock):
+    sleep = SleepRecorder()
+    monkeypatch.setattr(_client.asyncio, "sleep", sleep)
+    for _ in range(2):
+        httpx_mock.add_response(status_code=503,
+                                headers={"Retry-After": "10"},
+                                json={"message": "unavailable"})
+
+    dify_accessor = DifyAccessor(
+        DifyConfig(
+            api_key="secret",
+            base_url="https://dify.example/v1",
+            dataset_id="dataset-1",
+            retry_attempts=2,
+            retry_max_delay=0.5,
+        ))
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            await _client.dify_get(dify_accessor,
+                                   "/datasets/dataset-1/documents")
+    finally:
+        await dify_accessor.close()
+
+    assert len(httpx_mock.get_requests()) == 2
+    assert sleep.delays == [0.5]
+
+
+@pytest.mark.asyncio
 async def test_dify_get_retries_transport_errors(monkeypatch, httpx_mock):
     sleep = SleepRecorder()
     monkeypatch.setattr(_client.asyncio, "sleep", sleep)
