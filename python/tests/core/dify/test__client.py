@@ -36,11 +36,29 @@ async def test_accessor_reuses_client_and_closes_it():
     assert first is second
     assert str(first.base_url) == "https://dify.example/v1/"
     assert first.headers["authorization"] == "Bearer secret"
+    assert first.timeout == httpx.Timeout(30.0)
 
     await dify_accessor.close()
 
     assert first.is_closed is True
     assert dify_accessor._client is None
+
+
+@pytest.mark.asyncio
+async def test_accessor_uses_configured_request_timeout():
+    dify_accessor = DifyAccessor(
+        DifyConfig(
+            api_key="secret",
+            base_url="https://dify.example/v1",
+            dataset_id="dataset-1",
+            request_timeout=12.5,
+        ))
+
+    client = dify_accessor.get_client()
+
+    assert client.timeout == httpx.Timeout(12.5)
+
+    await dify_accessor.close()
 
 
 @pytest.mark.asyncio

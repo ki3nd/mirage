@@ -6,31 +6,20 @@ from mirage.accessor.base import Accessor
 from mirage.concurrency import ConcurrencyLimiter
 from mirage.resource.dify.config import DifyConfig
 
-MAX_CONCURRENT_REQUESTS = 10
-POOL_MAX_CONNECTIONS = 20
-POOL_MAX_KEEPALIVE = 10
-POOL_KEEPALIVE_EXPIRY = 30.0
-REQUEST_TIMEOUT = 30.0
-
 
 class DifyAccessor(Accessor):
 
     def __init__(self, config: DifyConfig) -> None:
         self.config = config
         self._client: httpx.AsyncClient | None = None
-        self._request_limiter = ConcurrencyLimiter(MAX_CONCURRENT_REQUESTS)
+        self._request_limiter = ConcurrencyLimiter(config.max_concurrency)
 
     def get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 base_url=self.config.base_url,
                 headers={"Authorization": f"Bearer {self.config.api_key}"},
-                timeout=REQUEST_TIMEOUT,
-                limits=httpx.Limits(
-                    max_connections=POOL_MAX_CONNECTIONS,
-                    max_keepalive_connections=POOL_MAX_KEEPALIVE,
-                    keepalive_expiry=POOL_KEEPALIVE_EXPIRY,
-                ),
+                timeout=self.config.request_timeout,
             )
         return self._client
 

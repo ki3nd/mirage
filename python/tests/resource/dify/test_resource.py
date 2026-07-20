@@ -1,5 +1,7 @@
 import pytest
+from pydantic import ValidationError
 
+from mirage.resource.dify import DifyConfig
 from mirage.resource.registry import REGISTRY, build_resource
 from mirage.types import ResourceName
 
@@ -24,6 +26,8 @@ def test_dify_resource_is_registered_and_redacts_api_key():
     assert resource.SUPPORTS_SNAPSHOT is False
     assert resource.config.base_url == "https://api.dify.ai/v1"
     assert resource.config.slug_metadata_name == "slug"
+    assert resource.config.max_concurrency == 10
+    assert resource.config.request_timeout == 30.0
     assert resource.accessor.config is resource.config
 
     state = resource.get_state()
@@ -33,6 +37,8 @@ def test_dify_resource_is_registered_and_redacts_api_key():
     assert state["config"]["api_key"] == "<REDACTED>"
     assert state["config"]["dataset_id"] == "dataset-1"
     assert state["config"]["slug_metadata_name"] == "slug"
+    assert state["config"]["max_concurrency"] == 10
+    assert state["config"]["request_timeout"] == 30.0
 
 
 def test_dify_resource_accepts_configured_slug_metadata_name():
@@ -47,6 +53,19 @@ def test_dify_resource_accepts_configured_slug_metadata_name():
     )
 
     assert resource.config.slug_metadata_name == "path"
+
+
+@pytest.mark.parametrize("field", ["max_concurrency", "request_timeout"])
+def test_dify_config_rejects_non_positive_request_limits(field):
+    values = {
+        "api_key": "dataset-secret",
+        "base_url": "https://api.dify.ai/v1",
+        "dataset_id": "dataset-1",
+        field: 0,
+    }
+
+    with pytest.raises(ValidationError):
+        DifyConfig(**values)
 
 
 def test_dify_resource_registers_expected_commands_and_ops():
