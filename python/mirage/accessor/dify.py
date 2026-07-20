@@ -1,9 +1,9 @@
-import asyncio
 from typing import Any
 
 import httpx
 
 from mirage.accessor.base import Accessor
+from mirage.concurrency import ConcurrencyLimiter
 from mirage.resource.dify.config import DifyConfig
 
 MAX_CONCURRENT_REQUESTS = 10
@@ -18,7 +18,7 @@ class DifyAccessor(Accessor):
     def __init__(self, config: DifyConfig) -> None:
         self.config = config
         self._client: httpx.AsyncClient | None = None
-        self._request_limit = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+        self._request_limiter = ConcurrencyLimiter(MAX_CONCURRENT_REQUESTS)
 
     def get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -36,7 +36,7 @@ class DifyAccessor(Accessor):
 
     async def request(self, method: str, endpoint: str,
                       **kwargs: Any) -> httpx.Response:
-        async with self._request_limit:
+        async with self._request_limiter.acquire():
             return await self.get_client().request(method, endpoint, **kwargs)
 
     async def close(self) -> None:
