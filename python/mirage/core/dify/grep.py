@@ -8,27 +8,24 @@ from mirage.core.dify.read import read_stream
 from mirage.io.async_line_iterator import AsyncLineIterator
 from mirage.types import PathSpec
 
-MAX_WORKERS = 10
-GrepResult = tuple[list[str], str, bytes]
+_MAX_GREP_WORKERS = 10
 
 
-async def grep_bytes(
-        accessor: DifyAccessor,
-        paths: list[PathSpec],
-        pattern: str,
-        index: IndexCacheStore = NULL_INDEX,
-        ignore_case: bool = False) -> tuple[bytes, dict[str, bytes]]:
+async def grep_bytes(accessor: DifyAccessor,
+                     paths: list[PathSpec],
+                     pattern: str,
+                     index: IndexCacheStore = NULL_INDEX,
+                     ignore_case: bool = False) -> bytes:
     flags = re.IGNORECASE if ignore_case else 0
     regex = re.compile(pattern, flags)
     lines: list[str] = []
-    reads: dict[str, bytes] = {}
     if not paths:
-        return b"", reads
+        return b""
     queue: asyncio.Queue[tuple[int, PathSpec] | None] = asyncio.Queue()
-    results: list[GrepResult | None] = [None] * len(paths)
+    results: list[list[str] | None] = [None] * len(paths)
     for position, path in enumerate(paths):
         queue.put_nowait((position, path))
-    worker_count = min(MAX_WORKERS, len(paths))
+    worker_count = min(_MAX_GREP_WORKERS, len(paths))
     for _ in range(worker_count):
         queue.put_nowait(None)
     async with asyncio.TaskGroup() as group:
@@ -38,10 +35,8 @@ async def grep_bytes(
     for result in results:
         if result is None:
             raise RuntimeError("Dify grep worker did not return a result")
-        path_lines, virtual, data = result
-        lines.extend(path_lines)
-        reads[virtual] = data
-    return "\n".join(lines).encode(), reads
+        lines.extend(result)
+    return "\n".join(lines).encode()
 
 
 async def _grep_worker(
@@ -49,7 +44,7 @@ async def _grep_worker(
     regex: re.Pattern[str],
     index: IndexCacheStore,
     queue: asyncio.Queue[tuple[int, PathSpec] | None],
-    results: list[GrepResult | None],
+    results: list[list[str] | None],
 ) -> None:
     while True:
         item = await queue.get()
@@ -64,22 +59,14 @@ async def _grep_worker(
 
 async def _grep_path(accessor: DifyAccessor, path: PathSpec,
                      regex: re.Pattern[str],
-                     index: IndexCacheStore) -> GrepResult:
+                     index: IndexCacheStore) -> list[str]:
     lines: list[str] = []
-    chunks: list[bytes] = []
-    stream = _record_chunks(read_stream(accessor, path, index), chunks)
-    async for line_number, raw_line in _enumerate_lines(stream):
+    async for line_number, raw_line in _enumerate_lines(
+            read_stream(accessor, path, index)):
         line = raw_line.decode(errors="replace")
         if regex.search(line):
             lines.append(f"{path.virtual}:{line_number}:{line}")
-    return lines, path.virtual, b"".join(chunks)
-
-
-async def _record_chunks(source: AsyncIterator[bytes],
-                         chunks: list[bytes]) -> AsyncIterator[bytes]:
-    async for chunk in source:
-        chunks.append(chunk)
-        yield chunk
+    return lines
 
 
 async def _enumerate_lines(
